@@ -373,12 +373,6 @@ class UltimateTicTacToeUI {
     }
 
 
-    // Highlight previous move's board
-    const lastMove = this.engine.getLastMove();
-    if (lastMove && lastMove.boardRow === boardRow && lastMove.boardCol === boardCol) {
-      smallBoard.classList.add('last-move-board');
-    }
-
     if (boardStatus.type === 'won') {
       smallBoard.classList.add('won', `won-${boardStatus.winner.toLowerCase()}`);
       const overlay = document.createElement('div');
@@ -396,7 +390,9 @@ class UltimateTicTacToeUI {
     if (isPlayable) {
       smallBoard.classList.add('playable');
       if (state.activeBoard !== null) {
-        smallBoard.classList.add('active');
+        // Use current player's color for active board highlight
+        const currentPlayer = state.currentPlayer.toLowerCase();
+        smallBoard.classList.add('active', `active-${currentPlayer}`);
       }
     }
 
@@ -444,6 +440,7 @@ class UltimateTicTacToeUI {
         lastMove.boardCol === boardCol &&
         lastMove.cellRow === cellRow &&
         lastMove.cellCol === cellCol) {
+      // Cell already has x or o class from occupied state, last-move styling uses that
       cell.classList.add('last-move');
     }
 
@@ -507,6 +504,8 @@ class UltimateTicTacToeUI {
     const state = this.engine.getGameState();
     if (state.isGameOver) return;
 
+    // Target board is where the OPPONENT will play, so use opponent's color
+    const opponentColor = state.currentPlayer === 'X' ? 'o' : 'x';
     const targetStatus = state.globalBoard[targetBoardRow][targetBoardCol];
 
     if (targetStatus.type === 'playing') {
@@ -515,7 +514,7 @@ class UltimateTicTacToeUI {
         `.small-board[data-board-row="${targetBoardRow}"][data-board-col="${targetBoardCol}"]`
       );
       if (targetBoard) {
-        targetBoard.classList.add('target-board-highlight');
+        targetBoard.classList.add(`target-board-highlight-${opponentColor}`);
       }
     } else {
       // Target is blocked - highlight all playable boards
@@ -524,7 +523,7 @@ class UltimateTicTacToeUI {
         const bCol = parseInt((board as HTMLElement).dataset.boardCol!);
         const bStatus = state.globalBoard[bRow][bCol];
         if (bStatus.type === 'playing') {
-          board.classList.add('target-free-highlight');
+          board.classList.add(`target-free-highlight-${opponentColor}`);
         }
       });
     }
@@ -532,7 +531,10 @@ class UltimateTicTacToeUI {
 
   private clearTargetBoardHighlight(): void {
     this.boardElement.querySelectorAll('.small-board').forEach((board) => {
-      board.classList.remove('target-board-highlight', 'target-free-highlight');
+      board.classList.remove(
+        'target-board-highlight-x', 'target-board-highlight-o',
+        'target-free-highlight-x', 'target-free-highlight-o'
+      );
     });
   }
 
