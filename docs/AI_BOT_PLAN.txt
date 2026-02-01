@@ -1,0 +1,617 @@
+# План: Добавление AI бота с Minimax для Ultimate Tic-Tac-Toe
+
+Реализация AI модуля на основе алгоритма Minimax с alpha-beta pruning,
+транспозиционной таблицей и эвристической оценкой позиции для Ultimate Tic-Tac-Toe.
+Модуль интегрируется с существующим `GameEngine` без внешних зависимостей.
+
+## Структура файлов
+
+```
+src/lib/ultimate-tic-tac-toe/
+├── ai/
+│   ├── index.ts           # Точка входа модуля AI
+│   ├── types.ts           # Типы и интерфейсы AI
+│   ├── position-hash.ts   # Компактное хэширование позиции
+│   ├── evaluation.ts      # Эвристическая функция оценки позиции
+│   ├── minimax.ts         # Minimax с alpha-beta pruning
+│   └── ai-player.ts       # Главный класс AIPlayer
+├── __tests__/
+│   ├── ai-player.test.ts  # Юнит-тесты для AIPlayer
+│   ├── evaluation.test.ts # Тесты для эвристики
+│   └── minimax.test.ts    # Тесты для minimax
+```
+
+## Шаги реализации
+
+### 0. Добавить метод clone() в GameEngine (предварительно)
+**Файл:** `src/lib/ultimate-tic-tac-toe/game-engine.ts`
+
+`clone()` уже есть в `SmallBoard` и `GlobalBoard`, нужно только добавить в `GameEngine`:
+
+```typescript
+clone(): GameEngine {
+  const cloned = new GameEngine();
+  cloned.globalBoard = this.globalBoard.clone();
+  cloned.currentPlayer = this.currentPlayer;
+  cloned.activeBoard = this.activeBoard ? { ...this.activeBoard } : null;
+  cloned._isGameOver = this._isGameOver;
+  cloned._winner = this._winner;
+  cloned.moveHistory = []; // Не копируем историю — не нужна для AI
+  cloned.historyIndex = -1;
+  return cloned;
+}
+```
+
+Это критично для производительности — minimax вызывает clone() тысячи раз.
+
+### 1. Создать файл типов AI
+**Файл:** `src/lib/ultimate-tic-tac-toe/ai/types.ts`
+
+```typescript
+import { GlobalPosition, Player } from '../types';
+
+/** Конфигурация AI */
+export interface AIConfig {
+  maxDepth: number;              // Глубина поиска (рекомендовано 4-8)
+  useTranspositionTable: boolean; // Включить кэширование позиций
+  maxTableSize?: number;         // Лимит записей в таблице (по умолчанию 100000)
+}
+
+/** Тип границы для транспозиционной таблицы */
+export type BoundType = 'exact' | 'lower' | 'upper';
+
+/** Запись в транспозиционной таблице */
+export interface TranspositionEntry {
+  score: number;              // Оценка позиции
+  depth: number;              // Глубина на которой получена оценка
+  boundType: BoundType;       // Тип границы (для alpha-beta)
+  bestMove: GlobalPosition | null; // Лучший ход из этой позиции
+}
+
+/** Результат поиска лучшего хода */
+export interface AIMove {
+  move: GlobalPosition;       // Координаты хода
+  score: number;              // Оценка хода
+}
+
+/** Статистика поиска (для отладки/тестов) */
+export interface SearchStats {
+  nodesVisited: number;
+  cacheHits: number;
+  cutoffs: number;
+}
+```
+
+**Примечания:**
+- Убрана `Difficulty` — это UI-логика, библиотека принимает только `maxDepth`
+- Оценка терминальных состояний через значение `score`:
+  - Победа X: `+SCORE_WIN` (100000)
+  - Победа O: `-SCORE_WIN` (SCORE_LOSS = -100000)
+  - Ничья: `0` (SCORE_DRAW)
+- Хэш позиции — строка, ключ в Map, вычисляется функцией `computePositionHash()`
+
+### 2. Компактное хэширование позиции
+**Файл:** `src/lib/ultimate-tic-tac-toe/ai/position-hash.ts`
+
+**Концепция:** Упаковываем состояние игры в строку для использования как ключ Map.
+
+**Структура данных:**
+- 81 клетка, каждая имеет 3 состояния (пусто/X/O) — кодируем в base-3
+- 15 клеток в base-3 = 3^15 = 14_348_907 < 2^24 — влезает в JS number
+- Текущий игрок: 1 значение (0 или 1)
+- Активная доска: 10 значений (0-8 или 9=null)
+
+**Реализация:**
+
+```typescript
+import { GameState } from '../types';
+
+/**
+ * Вычисляет уникальный хэш-ключ для позиции.
+ * Используется как ключ в транспозиционной таблице.
+ */
+export function computePositionHash(state: GameState): string {
+  const parts: number[] = [];
+
+  // Кодируем 9 малых досок, каждая по 9 клеток
+  // Группируем по 2 доски (18 клеток) — 3^18 = 387_420_489 < 2^29
+  for (let group = 0; group < 5; group++) {
+    let value = 0;
+    const startBoard = group * 2;
+    const endBoard = Math.min(startBoard + 2, 9);
+
+    for (let boardIdx = startBoard; boardIdx < endBoard; boardIdx++) {
+      const boardRow = Math.floor(boardIdx / 3);
+      const boardCol = boardIdx % 3;
+
+      for (let cellRow = 0; cellRow < 3; cellRow++) {
+        for (let cellCol = 0; cellCol < 3; cellCol++) {
+          const cell = state.boards[boardRow][boardCol][cellRow][cellCol];
+          const cellValue = cell === null ? 0 : cell === 'X' ? 1 : 2;
+          value = value * 3 + cellValue;
+        }
+      }
+    }
+    parts.push(value);
+  }
+
+  // Метаданные: игрок (0/1) + активная доска (0-9)
+  const playerBit = state.currentPlayer === 'X' ? 0 : 1;
+  const activeBoardValue = state.activeBoard
+    ? state.activeBoard.row * 3 + state.activeBoard.col
+    : 9;
+
+  // Формируем строку — base36 для компактности
+  return parts.map(p => p.toString(36)).join('.') + '.' + playerBit + activeBoardValue;
+}
+```
+
+**Примечание:** 5 групп потому что 9 досок ÷ 2 = 4.5, округляем вверх.
+Последняя группа содержит только 1 доску (9 клеток).
+
+**Почему строка, а не число:**
+- JS number безопасен только до 2^53, нам нужно ~171 бит
+- Map отлично работает со строковыми ключами
+- Простая отладка и проверка
+
+### 3. Эвристическая функция оценки
+**Файл:** `src/lib/ultimate-tic-tac-toe/ai/evaluation.ts`
+
+**Оценка позиции для Ultimate Tic-Tac-Toe:**
+
+```typescript
+import { GameState, Player, SmallBoardStatus, CellState } from '../types';
+
+// Константы для терминальных состояний
+export const SCORE_WIN = 100000;
+export const SCORE_LOSS = -100000;
+export const SCORE_DRAW = 0;
+
+// Веса для эвристики
+const WEIGHTS = {
+  wonBoard: 1000,           // Выигранная малая доска
+  twoInRowGlobal: 300,      // Два в ряд на глобальной доске
+  twoInRowLocal: 30,        // Два в ряд на малой доске
+  centerBoard: 150,         // Бонус за центральную доску (1,1)
+  cornerBoard: 50,          // Бонус за угловую доску
+  centerCell: 10,           // Центральная клетка малой доски
+  cornerCell: 5,            // Угловая клетка малой доски
+  mobility: 2,              // Бонус за количество доступных ходов
+  sendToWonBoard: 100,      // Бонус если отправляем противника на недоступную доску
+};
+
+// Позиционные множители для досок
+const BOARD_POSITION_MULTIPLIER: number[][] = [
+  [1.2, 1.0, 1.2],  // Углы важнее рёбер
+  [1.0, 1.5, 1.0],  // Центр самый важный
+  [1.2, 1.0, 1.2],
+];
+
+/**
+ * Оценивает позицию с точки зрения игрока X.
+ * Положительное значение — X лидирует, отрицательное — O лидирует.
+ *
+ * @param state - текущее состояние игры
+ * @param depth - оставшаяся глубина поиска (для предпочтения быстрой победы)
+ * @returns score (±SCORE_WIN для победы, 0 для ничьи, промежуточное значение иначе)
+ */
+export function evaluatePosition(state: GameState, depth: number = 0): number {
+  // Терминальные состояния
+  // Добавляем depth чтобы предпочитать быструю победу (меньше ходов = лучше)
+  if (state.isGameOver) {
+    if (state.winner === 'X') return SCORE_WIN + depth; // Чем больше depth осталось, тем быстрее победа
+    if (state.winner === 'O') return SCORE_LOSS - depth;
+    return SCORE_DRAW;
+  }
+
+  let score = 0;
+
+  // 1. Оценка глобальной доски
+  score += evaluateGlobalBoard(state.globalBoard);
+
+  // 2. Оценка малых досок (клетки внутри)
+  score += evaluateLocalBoards(state.boards, state.globalBoard);
+
+  // 3. Позиционные факторы
+  score += evaluatePositionalFactors(state);
+
+  return score;
+}
+
+function evaluateGlobalBoard(globalBoard: SmallBoardStatus[][]): number {
+  let score = 0;
+
+  // Подсчёт выигранных досок
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      const status = globalBoard[row][col];
+      if (status.type === 'won') {
+        const multiplier = BOARD_POSITION_MULTIPLIER[row][col];
+        const value = WEIGHTS.wonBoard * multiplier;
+        score += status.winner === 'X' ? value : -value;
+      }
+    }
+  }
+
+  // Проверка "два в ряд" на глобальной доске
+  score += countTwoInRow(globalBoard, 'X') * WEIGHTS.twoInRowGlobal;
+  score -= countTwoInRow(globalBoard, 'O') * WEIGHTS.twoInRowGlobal;
+
+  return score;
+}
+
+// ... остальные вспомогательные функции
+```
+
+**Ключевые моменты:**
+- Терминальные состояния возвращают ±SCORE_WIN, не Infinity (проще для арифметики)
+- **Учёт глубины для победы:** `SCORE_WIN - depth` чтобы AI предпочитал быструю победу
+- Множители для позиций (центр > углы > рёбра)
+- Учитываем угрозы (два в ряд)
+- Мобильность — количество доступных ходов
+
+### 4. Minimax с alpha-beta pruning
+**Файл:** `src/lib/ultimate-tic-tac-toe/ai/minimax.ts`
+
+```typescript
+import { GameEngine } from '../game-engine';
+import { GlobalPosition, Player } from '../types';
+import { AIConfig, TranspositionEntry, BoundType, SearchStats, AIMove } from './types';
+import { evaluatePosition, SCORE_WIN, SCORE_LOSS } from './evaluation';
+import { computePositionHash } from './position-hash';
+
+export class MinimaxSearch {
+  private transpositionTable: Map<string, TranspositionEntry>;
+  private config: AIConfig;
+  private stats: SearchStats;
+
+  constructor(config: AIConfig) {
+    this.config = config;
+    this.transpositionTable = new Map();
+    this.stats = { nodesVisited: 0, cacheHits: 0, cutoffs: 0 };
+  }
+
+  /**
+   * Находит лучший ход для текущего игрока.
+   */
+  findBestMove(engine: GameEngine): AIMove | null {
+    this.stats = { nodesVisited: 0, cacheHits: 0, cutoffs: 0 };
+
+    const moves = engine.getValidMoves();
+    if (moves.length === 0) return null;
+
+    const isMaximizing = engine.getCurrentPlayer() === 'X';
+    let bestMove: GlobalPosition | null = null;
+    let bestScore = isMaximizing ? -Infinity : Infinity;
+    let alpha = -Infinity;
+    let beta = Infinity;
+
+    // Сортировка ходов для лучшего отсечения
+    const sortedMoves = this.orderMoves(moves, engine);
+
+    for (const move of sortedMoves) {
+      // Применяем ход на копии
+      const engineCopy = this.cloneEngine(engine);
+      engineCopy.makeMove(move.boardRow, move.boardCol, move.cellRow, move.cellCol);
+
+      const score = this.minimax(
+        engineCopy,
+        this.config.maxDepth - 1,
+        alpha,
+        beta,
+        !isMaximizing
+      );
+
+      if (isMaximizing) {
+        if (score > bestScore) {
+          bestScore = score;
+          bestMove = move;
+        }
+        alpha = Math.max(alpha, score);
+      } else {
+        if (score < bestScore) {
+          bestScore = score;
+          bestMove = move;
+        }
+        beta = Math.min(beta, score);
+      }
+    }
+
+    return bestMove ? { move: bestMove, score: bestScore } : null;
+  }
+
+  private minimax(
+    engine: GameEngine,
+    depth: number,
+    alpha: number,
+    beta: number,
+    isMaximizing: boolean
+  ): number {
+    this.stats.nodesVisited++;
+
+    // Терминальное условие
+    if (depth === 0 || engine.isGameOver()) {
+      return evaluatePosition(engine.getGameState(), depth);
+    }
+
+    // Проверка транспозиционной таблицы
+    const hash = this.config.useTranspositionTable
+      ? computePositionHash(engine.getGameState())
+      : null;
+
+    if (hash) {
+      const entry = this.transpositionTable.get(hash);
+      if (entry && entry.depth >= depth) {
+        this.stats.cacheHits++;
+        if (entry.boundType === 'exact') return entry.score;
+        if (entry.boundType === 'lower') alpha = Math.max(alpha, entry.score);
+        if (entry.boundType === 'upper') beta = Math.min(beta, entry.score);
+        if (alpha >= beta) return entry.score;
+      }
+    }
+
+    const moves = engine.getValidMoves();
+    const sortedMoves = this.orderMoves(moves, engine);
+
+    let bestScore: number;
+    let bestMove: GlobalPosition | null = null;
+    let boundType: BoundType = 'exact';
+
+    if (isMaximizing) {
+      bestScore = -Infinity;
+      for (const move of sortedMoves) {
+        const engineCopy = this.cloneEngine(engine);
+        engineCopy.makeMove(move.boardRow, move.boardCol, move.cellRow, move.cellCol);
+
+        const score = this.minimax(engineCopy, depth - 1, alpha, beta, false);
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestMove = move;
+        }
+        alpha = Math.max(alpha, score);
+        if (beta <= alpha) {
+          this.stats.cutoffs++;
+          boundType = 'lower';
+          break;
+        }
+      }
+    } else {
+      bestScore = Infinity;
+      for (const move of sortedMoves) {
+        const engineCopy = this.cloneEngine(engine);
+        engineCopy.makeMove(move.boardRow, move.boardCol, move.cellRow, move.cellCol);
+
+        const score = this.minimax(engineCopy, depth - 1, alpha, beta, true);
+
+        if (score < bestScore) {
+          bestScore = score;
+          bestMove = move;
+        }
+        beta = Math.min(beta, score);
+        if (beta <= alpha) {
+          this.stats.cutoffs++;
+          boundType = 'upper';
+          break;
+        }
+      }
+    }
+
+    // Сохраняем в транспозиционную таблицу
+    if (hash) {
+      this.storeInTable(hash, { score: bestScore, depth, boundType, bestMove });
+    }
+
+    return bestScore;
+  }
+
+  /**
+   * Сортировка ходов для улучшения alpha-beta отсечения.
+   * Приоритет: ход из кэша, центральные клетки, угловые клетки.
+   */
+  private orderMoves(moves: GlobalPosition[], engine: GameEngine): GlobalPosition[] {
+    // Проверяем есть ли bestMove в транспозиционной таблице
+    let ttBestMove: GlobalPosition | null = null;
+    if (this.config.useTranspositionTable) {
+      const hash = computePositionHash(engine.getGameState());
+      const entry = this.transpositionTable.get(hash);
+      if (entry?.bestMove) {
+        ttBestMove = entry.bestMove;
+      }
+    }
+
+    return moves.slice().sort((a, b) => {
+      // Ход из транспозиционной таблицы — максимальный приоритет
+      const aIsTTMove = ttBestMove &&
+        a.boardRow === ttBestMove.boardRow && a.boardCol === ttBestMove.boardCol &&
+        a.cellRow === ttBestMove.cellRow && a.cellCol === ttBestMove.cellCol;
+      const bIsTTMove = ttBestMove &&
+        b.boardRow === ttBestMove.boardRow && b.boardCol === ttBestMove.boardCol &&
+        b.cellRow === ttBestMove.cellRow && b.cellCol === ttBestMove.cellCol;
+
+      if (aIsTTMove && !bIsTTMove) return -1;
+      if (bIsTTMove && !aIsTTMove) return 1;
+
+      // Приоритет центральным клеткам
+      const aCenter = (a.cellRow === 1 && a.cellCol === 1) ? 2 : 0;
+      const bCenter = (b.cellRow === 1 && b.cellCol === 1) ? 2 : 0;
+
+      // Приоритет центральной доске
+      const aBoardCenter = (a.boardRow === 1 && a.boardCol === 1) ? 1 : 0;
+      const bBoardCenter = (b.boardRow === 1 && b.boardCol === 1) ? 1 : 0;
+
+      return (bCenter + bBoardCenter) - (aCenter + aBoardCenter);
+    });
+  }
+
+  private cloneEngine(engine: GameEngine): GameEngine {
+    return engine.clone(); // См. шаг 0
+  }
+
+  private storeInTable(hash: string, entry: TranspositionEntry): void {
+    // LRU-подобное поведение: удаляем старые записи при переполнении
+    if (this.transpositionTable.size >= (this.config.maxTableSize || 100000)) {
+      // Удаляем первую запись (приблизительный LRU)
+      const firstKey = this.transpositionTable.keys().next().value;
+      if (firstKey) this.transpositionTable.delete(firstKey);
+    }
+    this.transpositionTable.set(hash, entry);
+  }
+
+  getStats(): SearchStats {
+    return { ...this.stats };
+  }
+
+  clearTable(): void {
+    this.transpositionTable.clear();
+  }
+}
+```
+
+**Оптимизации:**
+- Move ordering: центральные клетки и доски первыми
+- Транспозиционная таблица с учётом типа границы (exact/lower/upper)
+- Простой LRU через удаление первого элемента Map
+- Статистика для отладки и тестов
+
+### 5. Главный класс AIPlayer
+**Файл:** `src/lib/ultimate-tic-tac-toe/ai/ai-player.ts`
+
+```typescript
+import { GameEngine } from '../game-engine';
+import { GlobalPosition } from '../types';
+import { AIConfig, AIMove, SearchStats } from './types';
+import { MinimaxSearch } from './minimax';
+import { evaluatePosition } from './evaluation';
+
+const DEFAULT_CONFIG: AIConfig = {
+  maxDepth: 4,
+  useTranspositionTable: true,
+  maxTableSize: 100000,
+};
+
+export class AIPlayer {
+  private search: MinimaxSearch;
+  private config: AIConfig;
+
+  constructor(config: Partial<AIConfig> = {}) {
+    this.config = { ...DEFAULT_CONFIG, ...config };
+    this.search = new MinimaxSearch(this.config);
+  }
+
+  /**
+   * Находит лучший ход для текущего игрока.
+   * @returns Лучший ход и его оценка, или null если ходов нет.
+   */
+  getBestMove(engine: GameEngine): AIMove | null {
+    if (engine.isGameOver()) return null;
+    return this.search.findBestMove(engine);
+  }
+
+  /**
+   * Оценивает текущую позицию.
+   * Положительное значение — X лидирует, отрицательное — O.
+   */
+  evaluatePosition(engine: GameEngine): number {
+    return evaluatePosition(engine.getGameState());
+  }
+
+  /**
+   * Устанавливает глубину поиска.
+   */
+  setMaxDepth(depth: number): void {
+    this.config.maxDepth = depth;
+    this.search = new MinimaxSearch(this.config);
+  }
+
+  /**
+   * Очищает транспозиционную таблицу.
+   * Рекомендуется вызывать при начале новой игры.
+   */
+  clearCache(): void {
+    this.search.clearTable();
+  }
+
+  /**
+   * Возвращает статистику последнего поиска.
+   */
+  getLastSearchStats(): SearchStats {
+    return this.search.getStats();
+  }
+}
+```
+
+**API:**
+- `getBestMove(engine)` — основной метод
+- `setMaxDepth(depth)` — настройка глубины (для разных "уровней сложности" на UI)
+- `evaluatePosition(engine)` — оценка текущей позиции
+- `clearCache()` — очистка кэша между играми
+- `getLastSearchStats()` — статистика для отладки
+
+### 6. Обновить экспорты
+**Файл:** `src/lib/ultimate-tic-tac-toe/ai/index.ts`
+```typescript
+export { AIPlayer } from './ai-player';
+export { AIConfig, AIMove, SearchStats } from './types';
+export { evaluatePosition, SCORE_WIN, SCORE_LOSS, SCORE_DRAW } from './evaluation';
+```
+
+**Файл:** `src/lib/ultimate-tic-tac-toe/index.ts`
+```typescript
+// Добавить:
+export { AIPlayer, AIConfig, AIMove, SearchStats, evaluatePosition } from './ai';
+```
+
+### 7. Юнит-тесты
+**Файл:** `src/lib/ultimate-tic-tac-toe/__tests__/ai-player.test.ts`
+
+**Тест-кейсы:**
+1. `getBestMove()` возвращает валидный ход из списка допустимых
+2. AI находит выигрышный ход когда он в одном ходе от победы
+3. AI блокирует выигрышный ход противника
+4. AI корректно работает когда нет активной доски (свободный выбор)
+5. Транспозиционная таблица работает (cacheHits > 0 при повторном поиске)
+6. Более глубокий поиск даёт лучшие или равные результаты
+7. Производительность: глубина 4 < 1 сек, глубина 6 < 5 сек на пустой доске
+
+**Файл:** `src/lib/ultimate-tic-tac-toe/__tests__/evaluation.test.ts`
+1. Пустая доска оценивается в 0
+2. Победа X = SCORE_WIN, победа O = SCORE_LOSS
+3. Центральная выигранная доска даёт больше очков чем угловая
+4. "Два в ряд" добавляет бонус
+
+## Зависимости между компонентами
+
+```
+types.ts
+    ↓
+position-hash.ts   evaluation.ts
+         ↓              ↓
+         └─────→ minimax.ts
+                     ↓
+                ai-player.ts
+                     ↓
+                 index.ts
+```
+
+## Порядок реализации
+
+0. clone() в GameEngine (5 мин)
+1. types.ts (10 мин)
+2. position-hash.ts (20 мин)
+3. evaluation.ts (40 мин)
+4. minimax.ts (1 час)
+5. ai-player.ts (20 мин)
+6. index.ts обновления (5 мин)
+7. Тесты (1.5 часа)
+
+**Общее время:** ~4 часа
+
+## Возможные улучшения (на будущее)
+
+1. **Iterative Deepening** — постепенное углубление с таймаутом
+2. **Killer Moves** — запоминание ходов, вызвавших отсечение
+3. **Principal Variation Search** — оптимизация alpha-beta
+4. **Quiescence Search** — продление поиска в "тактических" позициях
+5. **Opening Book** — заготовленные первые ходы
+

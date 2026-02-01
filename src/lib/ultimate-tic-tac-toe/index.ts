@@ -24,3 +24,7 @@ export type {
   GameResult
 } from './types';
 
+// AI Module exports
+export { AIPlayer, evaluatePosition, SCORE_WIN, SCORE_LOSS, SCORE_DRAW } from './ai';
+export type { AIConfig, AIMove, SearchStats } from './ai';
+

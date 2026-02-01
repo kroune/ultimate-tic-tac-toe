@@ -326,4 +326,22 @@ export class GameEngine {
 
     return engine;
   }
+
+  /**
+   * Creates a deep clone of the game engine.
+   * Used by AI for minimax search - optimized for performance.
+   * Does not copy move history (not needed for AI).
+   */
+  clone(): GameEngine {
+    const cloned = new GameEngine();
+    cloned.globalBoard = this.globalBoard.clone();
+    cloned.currentPlayer = this.currentPlayer;
+    cloned.activeBoard = this.activeBoard ? { ...this.activeBoard } : null;
+    cloned._isGameOver = this._isGameOver;
+    cloned._winner = this._winner;
+    // Не копируем историю — не нужна для AI
+    cloned.moveHistory = [];
+    cloned.historyIndex = -1;
+    return cloned;
+  }
 }
