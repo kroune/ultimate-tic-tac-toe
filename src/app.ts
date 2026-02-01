@@ -1,7 +1,27 @@
 import { GameEngine, GameState, Player, GlobalPosition } from './lib/ultimate-tic-tac-toe';
 
+type GameMode = 'friend' | 'bot';
+
+interface WorkerResponse {
+  type: 'result';
+  id: number;
+  move: GlobalPosition | null;
+  score: number;
+}
+
 class UltimateTicTacToeUI {
   private engine: GameEngine;
+  private aiWorker: Worker;
+  private aiRequestId: number = 0;
+  private pendingAIRequests: Map<number, (move: GlobalPosition | null) => void> = new Map();
+  private aiDepth: number = 4;
+  private hintDepth: number = 6;
+  private gameMode: GameMode = 'friend';
+  private humanPlayer: Player = 'X';
+  private isThinking: boolean = false;
+  private hintMove: GlobalPosition | null = null;
+  private hintTimeoutId: number | null = null;
+
   private boardElement: HTMLElement;
   private currentPlayerElement: HTMLElement;
   private activeBoardInfoElement: HTMLElement;
@@ -16,8 +36,20 @@ class UltimateTicTacToeUI {
   private historyNextBtn: HTMLButtonElement;
   private historyLastBtn: HTMLButtonElement;
 
+  // New elements for bot mode
+  private modeFriendBtn: HTMLButtonElement;
+  private modeBotBtn: HTMLButtonElement;
+  private botSettingsElement: HTMLElement;
+  private botDifficultyInput: HTMLInputElement;
+  private playerSideSelect: HTMLSelectElement;
+  private hintBtn: HTMLButtonElement;
+  private thinkingIndicator: HTMLElement;
+  private hintDepthInput: HTMLInputElement;
+
   constructor() {
     this.engine = new GameEngine();
+    this.aiWorker = new Worker('./js/ai-worker.js');
+    this.setupWorkerListener();
 
     this.boardElement = document.getElementById('game-board')!;
     this.currentPlayerElement = document.getElementById('current-player')!;
@@ -32,6 +64,16 @@ class UltimateTicTacToeUI {
     this.historyPrevBtn = document.getElementById('history-prev') as HTMLButtonElement;
     this.historyNextBtn = document.getElementById('history-next') as HTMLButtonElement;
     this.historyLastBtn = document.getElementById('history-last') as HTMLButtonElement;
+
+    // New elements for bot mode
+    this.modeFriendBtn = document.getElementById('mode-friend') as HTMLButtonElement;
+    this.modeBotBtn = document.getElementById('mode-bot') as HTMLButtonElement;
+    this.botSettingsElement = document.getElementById('bot-settings')!;
+    this.botDifficultyInput = document.getElementById('bot-difficulty') as HTMLInputElement;
+    this.playerSideSelect = document.getElementById('player-side') as HTMLSelectElement;
+    this.hintBtn = document.getElementById('hint-btn') as HTMLButtonElement;
+    this.thinkingIndicator = document.getElementById('thinking-indicator')!;
+    this.hintDepthInput = document.getElementById('hint-depth') as HTMLInputElement;
 
     this.loadFromURL();
     this.setupEventListeners();
@@ -48,6 +90,31 @@ class UltimateTicTacToeUI {
         this.engine = restored;
       }
     }
+  }
+
+  private setupWorkerListener(): void {
+    this.aiWorker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      const { id, move } = event.data;
+      const resolver = this.pendingAIRequests.get(id);
+      if (resolver) {
+        this.pendingAIRequests.delete(id);
+        resolver(move);
+      }
+    };
+  }
+
+  private requestAIMove(depth: number): Promise<GlobalPosition | null> {
+    return new Promise((resolve) => {
+      const id = ++this.aiRequestId;
+      this.pendingAIRequests.set(id, resolve);
+
+      this.aiWorker.postMessage({
+        type: 'getBestMove',
+        id,
+        encodedState: this.engine.encodeForURL(),
+        maxDepth: depth,
+      });
+    });
   }
 
   private updateURL(): void {
@@ -76,6 +143,92 @@ class UltimateTicTacToeUI {
         this.goForward();
       }
     });
+
+    // Game mode switching
+    this.modeFriendBtn.addEventListener('click', () => this.setGameMode('friend'));
+    this.modeBotBtn.addEventListener('click', () => this.setGameMode('bot'));
+
+    // Bot settings
+    this.botDifficultyInput.addEventListener('change', () => {
+      const depth = parseInt(this.botDifficultyInput.value) || 4;
+      this.aiDepth = Math.max(1, Math.min(12, depth));
+    });
+
+    // Hint depth settings
+    this.hintDepthInput.addEventListener('change', () => {
+      const depth = parseInt(this.hintDepthInput.value) || 6;
+      this.hintDepth = Math.max(1, Math.min(12, depth));
+    });
+
+    this.playerSideSelect.addEventListener('change', () => {
+      this.humanPlayer = this.playerSideSelect.value as Player;
+      this.resetGame();
+    });
+
+    // Hint button
+    this.hintBtn.addEventListener('click', () => this.showHint());
+  }
+
+  private setGameMode(mode: GameMode): void {
+    if (this.gameMode === mode) return;
+
+    this.gameMode = mode;
+    this.modeFriendBtn.classList.toggle('active', mode === 'friend');
+    this.modeBotBtn.classList.toggle('active', mode === 'bot');
+    this.botSettingsElement.hidden = mode === 'friend';
+
+    this.resetGame();
+  }
+
+  private async showHint(): Promise<void> {
+    if (this.isThinking || this.engine.isGameOver()) return;
+
+    // Clear any existing hint timeout
+    if (this.hintTimeoutId !== null) {
+      clearTimeout(this.hintTimeoutId);
+      this.hintTimeoutId = null;
+    }
+
+    // If hint is already shown, just clear it
+    if (this.hintMove !== null) {
+      this.hintMove = null;
+      this.render();
+      return;
+    }
+
+    this.setThinking(true);
+
+    const bestMove = await this.requestAIMove(this.hintDepth);
+
+    this.setThinking(false);
+
+    if (bestMove) {
+      this.hintMove = bestMove;
+      this.render();
+
+      // Auto-clear hint after 5 seconds
+      this.hintTimeoutId = window.setTimeout(() => {
+        if (this.hintMove) {
+          this.hintMove = null;
+          this.render();
+        }
+        this.hintTimeoutId = null;
+      }, 5000);
+    }
+  }
+
+  private clearHint(): void {
+    if (this.hintTimeoutId !== null) {
+      clearTimeout(this.hintTimeoutId);
+      this.hintTimeoutId = null;
+    }
+    this.hintMove = null;
+  }
+
+  private setThinking(thinking: boolean): void {
+    this.isThinking = thinking;
+    this.thinkingIndicator.hidden = !thinking;
+    this.hintBtn.disabled = thinking;
   }
 
   private goToStart(): void {
@@ -110,9 +263,15 @@ class UltimateTicTacToeUI {
 
   private resetGame(): void {
     this.engine.reset();
+    this.clearHint();
     this.modalElement.hidden = true;
     this.render();
     this.updateURL();
+
+    // If bot plays first (human is O), make bot move
+    if (this.gameMode === 'bot' && this.humanPlayer === 'O') {
+      this.makeBotMove();
+    }
   }
 
   private render(): void {
@@ -193,10 +352,19 @@ class UltimateTicTacToeUI {
 
     const cellState = state.boards[boardRow][boardCol][cellRow][cellCol];
 
+    // Check if this cell is the hint cell
+    if (this.hintMove &&
+        this.hintMove.boardRow === boardRow &&
+        this.hintMove.boardCol === boardCol &&
+        this.hintMove.cellRow === cellRow &&
+        this.hintMove.cellCol === cellCol) {
+      cell.classList.add('hint-highlight');
+    }
+
     if (cellState !== null) {
       cell.textContent = cellState;
       cell.classList.add('occupied', cellState.toLowerCase());
-    } else if (boardPlayable) {
+    } else if (boardPlayable && !this.isThinking) {
       cell.addEventListener('click', () => this.handleCellClick(boardRow, boardCol, cellRow, cellCol));
     }
 
@@ -204,6 +372,15 @@ class UltimateTicTacToeUI {
   }
 
   private handleCellClick(boardRow: number, boardCol: number, cellRow: number, cellCol: number): void {
+    if (this.isThinking) return;
+
+    // In bot mode, only allow human player's turn
+    if (this.gameMode === 'bot') {
+      const state = this.engine.getGameState();
+      if (state.currentPlayer !== this.humanPlayer) return;
+    }
+
+    this.clearHint();
     const result = this.engine.makeMove(boardRow, boardCol, cellRow, cellCol);
 
     if (result.success) {
@@ -212,7 +389,31 @@ class UltimateTicTacToeUI {
 
       if (this.engine.isGameOver()) {
         this.showGameOverModal();
+      } else if (this.gameMode === 'bot') {
+        // Bot's turn
+        this.makeBotMove();
       }
+    }
+  }
+
+  private async makeBotMove(): Promise<void> {
+    if (this.engine.isGameOver() || this.isThinking) return;
+
+    this.setThinking(true);
+
+    const bestMove = await this.requestAIMove(this.aiDepth);
+
+    if (bestMove) {
+      const { boardRow, boardCol, cellRow, cellCol } = bestMove;
+      this.engine.makeMove(boardRow, boardCol, cellRow, cellCol);
+    }
+
+    this.setThinking(false);
+    this.render();
+    this.updateURL();
+
+    if (this.engine.isGameOver()) {
+      this.showGameOverModal();
     }
   }
 

@@ -81,6 +81,113 @@ body {
   font-weight: 700;
 }
 
+/* Game Mode Selector */
+.game-mode-selector {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.mode-btn {
+  padding: 8px 16px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-btn:hover {
+  background: var(--border-color);
+}
+
+.mode-btn.active {
+  background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+  color: white;
+  border-color: transparent;
+}
+
+/* Bot Settings */
+.bot-settings {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: var(--bg-color);
+  border-radius: 8px;
+}
+
+.bot-settings[hidden] {
+  display: none;
+}
+
+.bot-settings label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.bot-settings select {
+  padding: 6px 10px;
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--text-color);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.bot-settings select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.bot-settings input[type="number"],
+.hint-settings input[type="number"] {
+  width: 60px;
+  padding: 6px 10px;
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--text-color);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.bot-settings input[type="number"]:focus,
+.hint-settings input[type="number"]:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+/* Hint Settings */
+.hint-settings {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--bg-color);
+  border-radius: 8px;
+}
+
+.hint-settings label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
 .game-info {
   display: flex;
   justify-content: space-between;
@@ -368,6 +475,12 @@ body {
   gap: 12px;
 }
 
+.footer-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .score-board {
   display: flex;
   gap: 16px;
@@ -399,6 +512,70 @@ body {
 
 .btn-reset:hover {
   background: var(--border-color);
+}
+
+.btn-hint {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  color: #1e293b;
+  border: 2px solid transparent;
+}
+
+.btn-hint:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(251, 191, 36, 0.4);
+}
+
+.btn-hint:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Thinking Indicator */
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  padding: 8px 16px;
+  background: var(--bg-color);
+  border-radius: 8px;
+}
+
+.thinking-indicator[hidden] {
+  display: none;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Hint highlight for cells */
+.cell.hint-highlight {
+  animation: hintPulse 1s ease-in-out infinite;
+  box-shadow: 0 0 0 3px #fbbf24;
+  z-index: 5;
+  position: relative;
+}
+
+@keyframes hintPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.8);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(251, 191, 36, 0.4);
+  }
 }
 
 .btn-primary {

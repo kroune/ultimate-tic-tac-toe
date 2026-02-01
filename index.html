@@ -26,6 +26,29 @@
   <div class="game-container">
     <header class="game-header">
       <h1>Супер крестики-нолики</h1>
+      <div class="game-mode-selector" id="mode-selector">
+        <button class="mode-btn active" id="mode-friend" data-mode="friend">С другом</button>
+        <button class="mode-btn" id="mode-bot" data-mode="bot">Против бота</button>
+      </div>
+      <div class="bot-settings" id="bot-settings" hidden>
+        <label>
+          Глубина поиска:
+          <input type="number" id="bot-difficulty" min="1" max="12" value="4">
+        </label>
+        <label>
+          Вы играете за:
+          <select id="player-side">
+            <option value="X">X (первый ход)</option>
+            <option value="O">O (второй ход)</option>
+          </select>
+        </label>
+      </div>
+      <div class="hint-settings" id="hint-settings">
+        <label>
+          Глубина подсказки:
+          <input type="number" id="hint-depth" min="1" max="12" value="6">
+        </label>
+      </div>
       <div class="game-info">
         <div class="current-player">
           Ход: <span id="current-player" class="player-x">X</span>
@@ -41,7 +64,13 @@
     </main>
 
     <footer class="game-footer">
-      <button class="btn btn-reset" id="reset-btn">Новая игра</button>
+      <div class="footer-buttons">
+        <button class="btn btn-reset" id="reset-btn">Новая игра</button>
+        <button class="btn btn-hint" id="hint-btn" title="Показать лучший ход">💡 Подсказка</button>
+      </div>
+      <div class="thinking-indicator" id="thinking-indicator" hidden>
+        <span class="spinner"></span> Бот думает...
+      </div>
       <div class="score-board">
         <span class="score player-x">X: <span id="score-x">0</span></span>
         <span class="score player-o">O: <span id="score-o">0</span></span>
