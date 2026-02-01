@@ -56,10 +56,8 @@ export class MinimaxSearch {
     let bestResult: AIMove | null = null;
 
     // Iterative Deepening: начинаем с глубины 1 и увеличиваем
-    // Примечание: TT очищается между итерациями для корректности оценок.
-    // ID всё ещё полезен для move ordering (bestResult.move используется для сортировки).
+    // TT не очищается - записи с меньшей глубиной будут игнорироваться благодаря проверке depth
     for (let depth = 1; depth <= this.config.maxDepth; depth++) {
-      this.transpositionTable.clear();
 
       const result = this.searchAtDepth(engine, depth, isMaximizing, bestResult?.move);
       if (result) {
@@ -91,17 +89,19 @@ export class MinimaxSearch {
     const sortedMoves = this.orderMoves(moves, engine, depth, previousBestMove);
 
     for (const move of sortedMoves) {
-      const engineCopy = engine.clone();
-      engineCopy.makeMove(move.boardRow, move.boardCol, move.cellRow, move.cellCol);
+      // Make/undo вместо clone для производительности
+      const undoData = engine.makeMoveUnsafe(move.boardRow, move.boardCol, move.cellRow, move.cellCol);
 
       const score = this.minimax(
-        engineCopy,
+        engine,
         depth - 1,
         alpha,
         beta,
         !isMaximizing,
         depth - 1
       );
+
+      engine.undoMove(move.boardRow, move.boardCol, move.cellRow, move.cellCol, undoData);
 
       if (isMaximizing) {
         if (score > bestScore) {
@@ -177,14 +177,40 @@ export class MinimaxSearch {
     let bestScore: number;
     let bestMove: GlobalPosition | null = null;
     let boundType: BoundType = 'exact';
+    let moveIndex = 0;
+
+    // Late Move Reduction disabled - not consistently improving performance
+    // Uncomment and tune for future experiments
+    const LMR_THRESHOLD = 99; // Effectively disabled
+    const LMR_MIN_DEPTH = 99; // Effectively disabled
 
     if (isMaximizing) {
       bestScore = -Infinity;
       for (const move of sortedMoves) {
-        const engineCopy = engine.clone();
-        engineCopy.makeMove(move.boardRow, move.boardCol, move.cellRow, move.cellCol);
+        const undoData = engine.makeMoveUnsafe(move.boardRow, move.boardCol, move.cellRow, move.cellCol);
 
-        const score = this.minimax(engineCopy, depth - 1, alpha, beta, false, ply + 1);
+        let score: number;
+        let searchDepth = depth - 1;
+
+        // Apply LMR for late moves at sufficient depth
+        if (moveIndex >= LMR_THRESHOLD && depth >= LMR_MIN_DEPTH) {
+          // Reduce depth by 1 for late moves
+          searchDepth = depth - 2;
+        }
+
+        if (moveIndex === 0) {
+          // Full window search for first move
+          score = this.minimax(engine, searchDepth, alpha, beta, false, ply + 1);
+        } else {
+          // PVS: Null window search for remaining moves
+          score = this.minimax(engine, searchDepth, alpha, alpha + 1, false, ply + 1);
+          if (score > alpha && score < beta) {
+            // Re-search with full window and full depth if reduced
+            score = this.minimax(engine, depth - 1, alpha, beta, false, ply + 1);
+          }
+        }
+
+        engine.undoMove(move.boardRow, move.boardCol, move.cellRow, move.cellCol, undoData);
 
         if (score > bestScore) {
           bestScore = score;
@@ -200,14 +226,35 @@ export class MinimaxSearch {
           this.updateHistory(move, depth, 'X');
           break;
         }
+        moveIndex++;
       }
     } else {
       bestScore = Infinity;
+      moveIndex = 0;
       for (const move of sortedMoves) {
-        const engineCopy = engine.clone();
-        engineCopy.makeMove(move.boardRow, move.boardCol, move.cellRow, move.cellCol);
+        const undoData = engine.makeMoveUnsafe(move.boardRow, move.boardCol, move.cellRow, move.cellCol);
 
-        const score = this.minimax(engineCopy, depth - 1, alpha, beta, true, ply + 1);
+        let score: number;
+        let searchDepth = depth - 1;
+
+        // Apply LMR for late moves at sufficient depth
+        if (moveIndex >= LMR_THRESHOLD && depth >= LMR_MIN_DEPTH) {
+          searchDepth = depth - 2;
+        }
+
+        if (moveIndex === 0) {
+          // Full window search for first move
+          score = this.minimax(engine, searchDepth, alpha, beta, true, ply + 1);
+        } else {
+          // PVS: Null window search for remaining moves
+          score = this.minimax(engine, searchDepth, beta - 1, beta, true, ply + 1);
+          if (score > alpha && score < beta) {
+            // Re-search with full window and full depth
+            score = this.minimax(engine, depth - 1, alpha, beta, true, ply + 1);
+          }
+        }
+
+        engine.undoMove(move.boardRow, move.boardCol, move.cellRow, move.cellCol, undoData);
 
         if (score < bestScore) {
           bestScore = score;
@@ -223,6 +270,7 @@ export class MinimaxSearch {
           this.updateHistory(move, depth, 'O');
           break;
         }
+        moveIndex++;
       }
     }
 

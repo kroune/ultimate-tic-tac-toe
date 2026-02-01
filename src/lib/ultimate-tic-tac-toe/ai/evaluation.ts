@@ -28,25 +28,26 @@ const WEIGHTS = {
 };
 
 // Позиционные множители для досок (центр важнее углов, углы важнее рёбер)
-const BOARD_POSITION_MULTIPLIER: number[][] = [
-  [1.2, 1.0, 1.2],
-  [1.0, 1.5, 1.0],
-  [1.2, 1.0, 1.2],
+const BOARD_POSITION_MULTIPLIER: readonly number[] = [
+  1.2, 1.0, 1.2,
+  1.0, 1.5, 1.0,
+  1.2, 1.0, 1.2,
 ];
 
-// Все линии для проверки 3 в ряд
-const LINES: [number, number][][] = [
+// Все линии для проверки 3 в ряд - оптимизированная структура
+// Каждая линия: [r1, c1, r2, c2, r3, c3]
+const LINES: readonly number[][] = [
   // Горизонтали
-  [[0, 0], [0, 1], [0, 2]],
-  [[1, 0], [1, 1], [1, 2]],
-  [[2, 0], [2, 1], [2, 2]],
+  [0, 0, 0, 1, 0, 2],
+  [1, 0, 1, 1, 1, 2],
+  [2, 0, 2, 1, 2, 2],
   // Вертикали
-  [[0, 0], [1, 0], [2, 0]],
-  [[0, 1], [1, 1], [2, 1]],
-  [[0, 2], [1, 2], [2, 2]],
+  [0, 0, 1, 0, 2, 0],
+  [0, 1, 1, 1, 2, 1],
+  [0, 2, 1, 2, 2, 2],
   // Диагонали
-  [[0, 0], [1, 1], [2, 2]],
-  [[0, 2], [1, 1], [2, 0]],
+  [0, 0, 1, 1, 2, 2],
+  [0, 2, 1, 1, 2, 0],
 ];
 
 /**
@@ -93,7 +94,7 @@ function evaluateGlobalBoard(globalBoard: SmallBoardStatus[][]): number {
     for (let col = 0; col < 3; col++) {
       const status = globalBoard[row][col];
       if (status.type === 'won') {
-        const multiplier = BOARD_POSITION_MULTIPLIER[row][col];
+        const multiplier = BOARD_POSITION_MULTIPLIER[row * 3 + col];
         const value = WEIGHTS.wonBoard * multiplier;
         score += status.winner === 'X' ? value : -value;
       }
@@ -117,12 +118,14 @@ function evaluateGlobalBoard(globalBoard: SmallBoardStatus[][]): number {
 function countTwoInRowOnGlobalBoard(globalBoard: SmallBoardStatus[][], player: Player): number {
   let count = 0;
 
-  for (const line of LINES) {
+  for (let i = 0; i < LINES.length; i++) {
+    const line = LINES[i];
     let playerCount = 0;
     let emptyCount = 0;
 
-    for (const [row, col] of line) {
-      const status = globalBoard[row][col];
+    // line format: [r1, c1, r2, c2, r3, c3]
+    for (let j = 0; j < 6; j += 2) {
+      const status = globalBoard[line[j]][line[j + 1]];
       if (status.type === 'won' && status.winner === player) {
         playerCount++;
       } else if (status.type === 'playing') {
@@ -147,12 +150,13 @@ function countBlockedThreatsOnGlobalBoard(globalBoard: SmallBoardStatus[][], pla
   const opponent: Player = player === 'X' ? 'O' : 'X';
   let count = 0;
 
-  for (const line of LINES) {
+  for (let i = 0; i < LINES.length; i++) {
+    const line = LINES[i];
     let opponentCount = 0;
     let playerCount = 0;
 
-    for (const [row, col] of line) {
-      const status = globalBoard[row][col];
+    for (let j = 0; j < 6; j += 2) {
+      const status = globalBoard[line[j]][line[j + 1]];
       if (status.type === 'won') {
         if (status.winner === opponent) opponentCount++;
         else if (status.winner === player) playerCount++;
@@ -182,7 +186,7 @@ function evaluateLocalBoards(boards: CellState[][][][], globalBoard: SmallBoardS
       if (status.type !== 'playing') continue;
 
       const cells = boards[boardRow][boardCol];
-      const positionMultiplier = BOARD_POSITION_MULTIPLIER[boardRow][boardCol];
+      const positionMultiplier = BOARD_POSITION_MULTIPLIER[boardRow * 3 + boardCol];
 
       // Оценка позиций на малой доске
       score += evaluateSmallBoard(cells) * positionMultiplier;
@@ -252,12 +256,13 @@ function evaluateSmallBoard(cells: CellState[][]): number {
 function countTwoInRowOnSmallBoard(cells: CellState[][], player: Player): number {
   let count = 0;
 
-  for (const line of LINES) {
+  for (let i = 0; i < LINES.length; i++) {
+    const line = LINES[i];
     let playerCount = 0;
     let emptyCount = 0;
 
-    for (const [row, col] of line) {
-      const cell = cells[row][col];
+    for (let j = 0; j < 6; j += 2) {
+      const cell = cells[line[j]][line[j + 1]];
       if (cell === player) {
         playerCount++;
       } else if (cell === null) {
@@ -280,12 +285,13 @@ function countBlockedThreatsOnSmallBoard(cells: CellState[][], player: Player): 
   const opponent: Player = player === 'X' ? 'O' : 'X';
   let count = 0;
 
-  for (const line of LINES) {
+  for (let i = 0; i < LINES.length; i++) {
+    const line = LINES[i];
     let opponentCount = 0;
     let playerCount = 0;
 
-    for (const [row, col] of line) {
-      const cell = cells[row][col];
+    for (let j = 0; j < 6; j += 2) {
+      const cell = cells[line[j]][line[j + 1]];
       if (cell === opponent) opponentCount++;
       else if (cell === player) playerCount++;
     }

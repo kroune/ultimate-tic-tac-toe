@@ -107,6 +107,44 @@ describe('Minimax Benchmark', () => {
 
       expect(time).toBeGreaterThan(0);
     });
+
+    test('benchmark depth 6', () => {
+      const engine = new GameEngine();
+      const search = new MinimaxSearch(createConfig(6));
+
+      const time = measureTime(() => {
+        search.findBestMove(engine);
+      });
+
+      const stats = search.getStats();
+
+      console.log(`\n[Empty Board] Depth 6:`);
+      console.log(`  Time: ${time.toFixed(2)}ms`);
+      console.log(`  Nodes visited: ${stats.nodesVisited}`);
+      console.log(`  Cache hits: ${stats.cacheHits}`);
+      console.log(`  Cutoffs: ${stats.cutoffs}`);
+
+      expect(time).toBeGreaterThan(0);
+    });
+
+    test('benchmark depth 7', () => {
+      const engine = new GameEngine();
+      const search = new MinimaxSearch(createConfig(7));
+
+      const time = measureTime(() => {
+        search.findBestMove(engine);
+      });
+
+      const stats = search.getStats();
+
+      console.log(`\n[Empty Board] Depth 7:`);
+      console.log(`  Time: ${time.toFixed(2)}ms`);
+      console.log(`  Nodes visited: ${stats.nodesVisited}`);
+      console.log(`  Cache hits: ${stats.cacheHits}`);
+      console.log(`  Cutoffs: ${stats.cutoffs}`);
+
+      expect(time).toBeGreaterThan(0);
+    });
   });
 
   // Scenario 2: Mid-game with restricted board

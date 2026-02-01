@@ -93,5 +93,13 @@ export class SmallBoard {
   isPlayable(): boolean {
     return this._status.type === 'playing';
   }
-}
 
+  /**
+   * Removes a move from the board (for AI undo).
+   * Assumes the move was the last one made.
+   */
+  undoMove(row: number, col: number): void {
+    this.cells[row][col] = null;
+    this._status = { type: 'playing' };
+  }
+}

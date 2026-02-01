@@ -5,7 +5,8 @@ import {
   GlobalPosition,
   GameState,
   MoveResult,
-  GameResult
+  GameResult,
+  SmallBoardStatus
 } from './types';
 import { isValidPosition, encodeMoves, decodeMoves, validateEncodedMoves } from './utils';
 
@@ -343,5 +344,90 @@ export class GameEngine {
     cloned.moveHistory = [];
     cloned.historyIndex = -1;
     return cloned;
+  }
+
+  /**
+   * Makes a move without validation (for AI performance).
+   * Returns data needed to undo the move.
+   * ONLY use when you know the move is valid!
+   */
+  makeMoveUnsafe(
+    boardRow: number,
+    boardCol: number,
+    cellRow: number,
+    cellCol: number
+  ): {
+    prevActiveBoard: Position | null;
+    prevIsGameOver: boolean;
+    prevWinner: Player | null;
+    boardStatusBefore: SmallBoardStatus;
+    player: Player;
+  } {
+    const prevActiveBoard = this.activeBoard;
+    const prevIsGameOver = this._isGameOver;
+    const prevWinner = this._winner;
+    const player = this.currentPlayer;
+
+    const smallBoard = this.globalBoard.getSmallBoard(boardRow, boardCol);
+    const boardStatusBefore = smallBoard.getStatus();
+
+    smallBoard.makeMove(cellRow, cellCol, player);
+
+    // Check for game over
+    const globalWinner = this.globalBoard.checkGlobalWinner();
+    if (globalWinner) {
+      this._isGameOver = true;
+      this._winner = globalWinner;
+    } else if (!this.globalBoard.hasAvailableMoves()) {
+      this._isGameOver = true;
+      const xBoards = this.globalBoard.countWonBoards('X');
+      const oBoards = this.globalBoard.countWonBoards('O');
+      if (xBoards > oBoards) {
+        this._winner = 'X';
+      } else if (oBoards > xBoards) {
+        this._winner = 'O';
+      } else {
+        this._winner = null;
+      }
+    }
+
+    // Update active board
+    if (!this._isGameOver) {
+      if (this.globalBoard.isSmallBoardPlayable(cellRow, cellCol)) {
+        this.activeBoard = { row: cellRow, col: cellCol };
+      } else {
+        this.activeBoard = null;
+      }
+      this.currentPlayer = this.currentPlayer === 'X' ? 'O' : 'X';
+    }
+
+    return { prevActiveBoard, prevIsGameOver, prevWinner, boardStatusBefore, player };
+  }
+
+  /**
+   * Undoes a move made with makeMoveUnsafe.
+   */
+  undoMove(
+    boardRow: number,
+    boardCol: number,
+    cellRow: number,
+    cellCol: number,
+    undoData: {
+      prevActiveBoard: Position | null;
+      prevIsGameOver: boolean;
+      prevWinner: Player | null;
+      boardStatusBefore: SmallBoardStatus;
+      player: Player;
+    }
+  ): void {
+    const smallBoard = this.globalBoard.getSmallBoard(boardRow, boardCol);
+    smallBoard.undoMove(cellRow, cellCol);
+    // Restore board status if it was won/draw before
+    (smallBoard as any)._status = undoData.boardStatusBefore;
+
+    this.activeBoard = undoData.prevActiveBoard;
+    this._isGameOver = undoData.prevIsGameOver;
+    this._winner = undoData.prevWinner;
+    this.currentPlayer = undoData.player;
   }
 }
