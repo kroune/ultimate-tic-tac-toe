@@ -188,6 +188,13 @@ export class GameEngine {
     return [...this.moveHistory];
   }
 
+  getLastMove(): GlobalPosition | null {
+    if (this.historyIndex < 0) {
+      return null;
+    }
+    return this.moveHistory[this.historyIndex];
+  }
+
   getHistoryIndex(): number {
     return this.historyIndex;
   }

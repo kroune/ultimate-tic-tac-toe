@@ -21,6 +21,7 @@ class UltimateTicTacToeUI {
   private isThinking: boolean = false;
   private hintMove: GlobalPosition | null = null;
   private hintTimeoutId: number | null = null;
+  private hoveredCell: GlobalPosition | null = null;
 
   private boardElement: HTMLElement;
   private currentPlayerElement: HTMLElement;
@@ -83,11 +84,47 @@ class UltimateTicTacToeUI {
   private loadFromURL(): void {
     const params = new URLSearchParams(window.location.search);
     const gameState = params.get('g');
+    const mode = params.get('mode');
+    const botDepth = params.get('botDepth');
+    const side = params.get('side');
 
     if (gameState) {
       const restored = GameEngine.fromEncodedMoves(gameState);
       if (restored) {
         this.engine = restored;
+      }
+    }
+
+    // Load game mode from URL
+    if (mode === 'bot') {
+      this.gameMode = 'bot';
+      this.modeFriendBtn.classList.remove('active');
+      this.modeBotBtn.classList.add('active');
+      this.botSettingsElement.hidden = false;
+    }
+
+    // Load bot depth from URL
+    if (botDepth) {
+      const depth = parseInt(botDepth);
+      if (!isNaN(depth) && depth >= 1 && depth <= 50) {
+        this.aiDepth = depth;
+        this.botDifficultyInput.value = depth.toString();
+      }
+    }
+
+    // Load human player side from URL
+    if (side === 'O') {
+      this.humanPlayer = 'O';
+      this.playerSideSelect.value = 'O';
+    }
+
+    // Load hint depth from localStorage
+    const savedHintDepth = localStorage.getItem('hintDepth');
+    if (savedHintDepth) {
+      const depth = parseInt(savedHintDepth);
+      if (!isNaN(depth) && depth >= 1 && depth <= 12) {
+        this.hintDepth = depth;
+        this.hintDepthInput.value = depth.toString();
       }
     }
   }
@@ -118,9 +155,23 @@ class UltimateTicTacToeUI {
   }
 
   private updateURL(): void {
+    const params = new URLSearchParams();
+
     const encoded = this.engine.encodeForURL();
-    const newURL = encoded
-      ? `${window.location.pathname}?g=${encoded}`
+    if (encoded) {
+      params.set('g', encoded);
+    }
+
+    // Save game mode
+    if (this.gameMode === 'bot') {
+      params.set('mode', 'bot');
+      params.set('botDepth', this.aiDepth.toString());
+      params.set('side', this.humanPlayer);
+    }
+
+    const queryString = params.toString();
+    const newURL = queryString
+      ? `${window.location.pathname}?${queryString}`
       : window.location.pathname;
 
     window.history.replaceState(null, '', newURL);
@@ -152,16 +203,19 @@ class UltimateTicTacToeUI {
     this.botDifficultyInput.addEventListener('change', () => {
       const depth = parseInt(this.botDifficultyInput.value) || 4;
       this.aiDepth = Math.max(1, Math.min(81, depth));
+      this.updateURL();
     });
 
     // Hint depth settings
     this.hintDepthInput.addEventListener('change', () => {
       const depth = parseInt(this.hintDepthInput.value) || 6;
       this.hintDepth = Math.max(1, Math.min(12, depth));
+      localStorage.setItem('hintDepth', this.hintDepth.toString());
     });
 
     this.playerSideSelect.addEventListener('change', () => {
       this.humanPlayer = this.playerSideSelect.value as Player;
+      this.updateURL();
       this.resetGame();
     });
 
@@ -179,6 +233,7 @@ class UltimateTicTacToeUI {
 
     // Don't reset the game, just update UI and check if bot needs to move
     this.render();
+    this.updateURL();
 
     // If switching to bot mode and it's bot's turn, make bot move
     if (mode === 'bot' && !this.engine.isGameOver()) {
@@ -236,7 +291,7 @@ class UltimateTicTacToeUI {
 
   private setThinking(thinking: boolean): void {
     this.isThinking = thinking;
-    this.thinkingIndicator.hidden = !thinking;
+    this.thinkingIndicator.classList.toggle('visible', thinking);
     this.hintBtn.disabled = thinking;
   }
 
@@ -312,6 +367,18 @@ class UltimateTicTacToeUI {
       (state.activeBoard.row === boardRow && state.activeBoard.col === boardCol);
     const isPlayable = boardStatus.type === 'playing' && isActive && !state.isGameOver;
 
+    // Highlight all playable boards when free move is available
+    if (state.activeBoard === null && boardStatus.type === 'playing' && !state.isGameOver) {
+      smallBoard.classList.add('free-move-highlight');
+    }
+
+
+    // Highlight previous move's board
+    const lastMove = this.engine.getLastMove();
+    if (lastMove && lastMove.boardRow === boardRow && lastMove.boardCol === boardCol) {
+      smallBoard.classList.add('last-move-board');
+    }
+
     if (boardStatus.type === 'won') {
       smallBoard.classList.add('won', `won-${boardStatus.winner.toLowerCase()}`);
       const overlay = document.createElement('div');
@@ -370,14 +437,103 @@ class UltimateTicTacToeUI {
       cell.classList.add('hint-highlight');
     }
 
+    // Check if this is the last move
+    const lastMove = this.engine.getLastMove();
+    if (lastMove &&
+        lastMove.boardRow === boardRow &&
+        lastMove.boardCol === boardCol &&
+        lastMove.cellRow === cellRow &&
+        lastMove.cellCol === cellCol) {
+      cell.classList.add('last-move');
+    }
+
     if (cellState !== null) {
       cell.textContent = cellState;
       cell.classList.add('occupied', cellState.toLowerCase());
     } else if (boardPlayable && !this.isThinking) {
+      // Add hover preview functionality
+      cell.addEventListener('mouseenter', () => {
+        this.showPreview(boardRow, boardCol, cellRow, cellCol, state.currentPlayer);
+      });
+      cell.addEventListener('mouseleave', () => {
+        this.hidePreview();
+      });
       cell.addEventListener('click', () => this.handleCellClick(boardRow, boardCol, cellRow, cellCol));
     }
 
     return cell;
+  }
+
+  private showPreview(boardRow: number, boardCol: number, cellRow: number, cellCol: number, player: Player): void {
+    this.hoveredCell = { boardRow, boardCol, cellRow, cellCol };
+
+    // Find the hovered cell and add preview
+    const cell = this.boardElement.querySelector(
+      `.cell[data-board-row="${boardRow}"][data-board-col="${boardCol}"][data-cell-row="${cellRow}"][data-cell-col="${cellCol}"]`
+    ) as HTMLElement;
+    if (cell && !cell.classList.contains('occupied')) {
+      cell.textContent = player;
+      cell.classList.add('preview', player.toLowerCase());
+    }
+
+    // Update target board highlight
+    this.updateTargetBoardHighlight(cellRow, cellCol);
+  }
+
+  private hidePreview(): void {
+    if (!this.hoveredCell) return;
+
+    const { boardRow, boardCol, cellRow, cellCol } = this.hoveredCell;
+
+    // Remove preview from the cell
+    const cell = this.boardElement.querySelector(
+      `.cell[data-board-row="${boardRow}"][data-board-col="${boardCol}"][data-cell-row="${cellRow}"][data-cell-col="${cellCol}"]`
+    ) as HTMLElement;
+    if (cell && cell.classList.contains('preview')) {
+      cell.textContent = '';
+      cell.classList.remove('preview', 'x', 'o');
+    }
+
+    // Remove target board highlights
+    this.clearTargetBoardHighlight();
+
+    this.hoveredCell = null;
+  }
+
+  private updateTargetBoardHighlight(targetBoardRow: number, targetBoardCol: number): void {
+    // Clear previous highlights
+    this.clearTargetBoardHighlight();
+
+    const state = this.engine.getGameState();
+    if (state.isGameOver) return;
+
+    const targetStatus = state.globalBoard[targetBoardRow][targetBoardCol];
+
+    if (targetStatus.type === 'playing') {
+      // Highlight specific target board
+      const targetBoard = this.boardElement.querySelector(
+        `.small-board[data-board-row="${targetBoardRow}"][data-board-col="${targetBoardCol}"]`
+      );
+      if (targetBoard) {
+        targetBoard.classList.add('target-board-highlight');
+      }
+    } else {
+      // Target is blocked - highlight all playable boards
+      this.boardElement.querySelectorAll('.small-board').forEach((board) => {
+        const bRow = parseInt((board as HTMLElement).dataset.boardRow!);
+        const bCol = parseInt((board as HTMLElement).dataset.boardCol!);
+        const bStatus = state.globalBoard[bRow][bCol];
+        if (bStatus.type === 'playing') {
+          board.classList.add('target-free-highlight');
+        }
+      });
+    }
+  }
+
+  private clearTargetBoardHighlight(): void {
+    this.boardElement.querySelectorAll('.small-board').forEach((board) => {
+      board.classList.remove('target-board-highlight', 'target-free-highlight');
+    });
   }
 
   private handleCellClick(boardRow: number, boardCol: number, cellRow: number, cellCol: number): void {
@@ -390,6 +546,7 @@ class UltimateTicTacToeUI {
     }
 
     this.clearHint();
+    this.hoveredCell = null;
     const result = this.engine.makeMove(boardRow, boardCol, cellRow, cellCol);
 
     if (result.success) {
