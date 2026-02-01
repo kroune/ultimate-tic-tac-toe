@@ -7,7 +7,7 @@ import {
   MoveResult,
   GameResult
 } from './types';
-import { isValidPosition } from './utils';
+import { isValidPosition, encodeMoves, decodeMoves, validateEncodedMoves } from './utils';
 
 export class GameEngine {
   private globalBoard: GlobalBoard;
@@ -16,6 +16,7 @@ export class GameEngine {
   private _isGameOver: boolean;
   private _winner: Player | null;
   private moveHistory: GlobalPosition[];
+  private historyIndex: number; // -1 = start, n = after move n
 
   constructor() {
     this.globalBoard = new GlobalBoard();
@@ -24,6 +25,7 @@ export class GameEngine {
     this._isGameOver = false;
     this._winner = null;
     this.moveHistory = [];
+    this.historyIndex = -1;
   }
 
   makeMove(
@@ -63,7 +65,13 @@ export class GameEngine {
       return { success: false, error: 'Cell is already occupied' };
     }
 
+    // If we're not at the end of history, truncate future moves
+    if (this.historyIndex < this.moveHistory.length - 1) {
+      this.moveHistory = this.moveHistory.slice(0, this.historyIndex + 1);
+    }
+
     this.moveHistory.push({ boardRow, boardCol, cellRow, cellCol });
+    this.historyIndex = this.moveHistory.length - 1;
 
     const globalWinner = this.globalBoard.checkGlobalWinner();
     if (globalWinner) {
@@ -179,6 +187,83 @@ export class GameEngine {
     return [...this.moveHistory];
   }
 
+  getHistoryIndex(): number {
+    return this.historyIndex;
+  }
+
+  canGoBack(): boolean {
+    return this.historyIndex >= 0;
+  }
+
+  canGoForward(): boolean {
+    return this.historyIndex < this.moveHistory.length - 1;
+  }
+
+  goToMove(index: number): boolean {
+    if (index < -1 || index >= this.moveHistory.length) {
+      return false;
+    }
+
+    // Rebuild state from scratch up to the given index
+    this.globalBoard = new GlobalBoard();
+    this.currentPlayer = 'X';
+    this.activeBoard = null;
+    this._isGameOver = false;
+    this._winner = null;
+
+    for (let i = 0; i <= index; i++) {
+      const move = this.moveHistory[i];
+      const smallBoard = this.globalBoard.getSmallBoard(move.boardRow, move.boardCol);
+      smallBoard.makeMove(move.cellRow, move.cellCol, this.currentPlayer);
+
+      // Check game over conditions
+      const globalWinner = this.globalBoard.checkGlobalWinner();
+      if (globalWinner) {
+        this._isGameOver = true;
+        this._winner = globalWinner;
+      } else if (!this.globalBoard.hasAvailableMoves()) {
+        this._isGameOver = true;
+        const xBoards = this.globalBoard.countWonBoards('X');
+        const oBoards = this.globalBoard.countWonBoards('O');
+        if (xBoards > oBoards) {
+          this._winner = 'X';
+        } else if (oBoards > xBoards) {
+          this._winner = 'O';
+        } else {
+          this._winner = null;
+        }
+      }
+
+      if (!this._isGameOver) {
+        if (this.globalBoard.isSmallBoardPlayable(move.cellRow, move.cellCol)) {
+          this.activeBoard = { row: move.cellRow, col: move.cellCol };
+        } else {
+          this.activeBoard = null;
+        }
+        this.currentPlayer = this.currentPlayer === 'X' ? 'O' : 'X';
+      }
+    }
+
+    this.historyIndex = index;
+    return true;
+  }
+
+  goBack(): boolean {
+    return this.goToMove(this.historyIndex - 1);
+  }
+
+  goForward(): boolean {
+    return this.goToMove(this.historyIndex + 1);
+  }
+
+  goToStart(): boolean {
+    return this.goToMove(-1);
+  }
+
+  goToEnd(): boolean {
+    return this.goToMove(this.moveHistory.length - 1);
+  }
+
   reset(): void {
     this.globalBoard = new GlobalBoard();
     this.currentPlayer = 'X';
@@ -186,6 +271,7 @@ export class GameEngine {
     this._isGameOver = false;
     this._winner = null;
     this.moveHistory = [];
+    this.historyIndex = -1;
   }
 
   serialize(): string {
@@ -193,6 +279,32 @@ export class GameEngine {
       state: this.getGameState(),
       moveHistory: this.moveHistory
     });
+  }
+
+  /** Compact encoding for URL sharing */
+  encodeForURL(): string {
+    return encodeMoves(this.moveHistory);
+  }
+
+  /** Restore from compact URL encoding */
+  static fromEncodedMoves(encoded: string): GameEngine | null {
+    if (!validateEncodedMoves(encoded)) {
+      return null;
+    }
+
+    const moves = decodeMoves(encoded);
+    if (moves === null) {
+      return null;
+    }
+
+    const engine = new GameEngine();
+    for (const move of moves) {
+      const result = engine.makeMove(move.boardRow, move.boardCol, move.cellRow, move.cellCol);
+      if (!result.success) {
+        return null; // Invalid move sequence
+      }
+    }
+    return engine;
   }
 
   static deserialize(data: string): GameEngine {
@@ -204,6 +316,7 @@ export class GameEngine {
         .makeMove(move.cellRow, move.cellCol, engine.currentPlayer);
       engine.currentPlayer = engine.currentPlayer === 'X' ? 'O' : 'X';
       engine.moveHistory.push(move);
+      engine.historyIndex++;
     }
 
     engine.currentPlayer = parsed.state.currentPlayer;
@@ -214,4 +327,3 @@ export class GameEngine {
     return engine;
   }
 }
-

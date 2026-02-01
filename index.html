@@ -4,11 +4,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ultimate Tic-Tac-Toe</title>
+  <title>Супер крестики-нолики</title>
   <link rel="stylesheet" href="css/style.css">
-  <meta name="description" content="Ultimate Tic-Tac-Toe - супер крестики-нолики 9x9">
+  <meta name="description" content="Супер крестики-нолики 9x9">
 
-  <meta property="og:title" content="Ultimate Tic-Tac-Toe">
+  <meta property="og:title" content="Супер крестики-нолики">
   <meta property="og:type" content="website">
   <meta property="og:url" content="">
   <meta property="og:image" content="">
@@ -25,7 +25,7 @@
 <body>
   <div class="game-container">
     <header class="game-header">
-      <h1>Ultimate Tic-Tac-Toe</h1>
+      <h1>Супер крестики-нолики</h1>
       <div class="game-info">
         <div class="current-player">
           Ход: <span id="current-player" class="player-x">X</span>
@@ -47,6 +47,21 @@
         <span class="score player-o">O: <span id="score-o">0</span></span>
       </div>
     </footer>
+
+    <section class="history-panel">
+      <div class="history-header">
+        <h3>История ходов</h3>
+        <div class="history-controls">
+          <button class="history-btn" id="history-first" title="К началу">⏮</button>
+          <button class="history-btn" id="history-prev" title="Назад">◀</button>
+          <button class="history-btn" id="history-next" title="Вперёд">▶</button>
+          <button class="history-btn" id="history-last" title="К концу">⏭</button>
+        </div>
+      </div>
+      <div class="history-list" id="history-list">
+        <div class="history-empty">Ходов пока нет</div>
+      </div>
+    </section>
 
     <div class="game-over-modal" id="game-over-modal" hidden>
       <div class="modal-content">

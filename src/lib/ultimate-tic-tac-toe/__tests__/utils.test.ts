@@ -1,5 +1,16 @@
-import { checkLine, checkWinnerOnGrid, isValidPosition, deepClone, createEmptyGrid } from '../utils';
-import { CellState } from '../types';
+import {
+  checkLine,
+  checkWinnerOnGrid,
+  isValidPosition,
+  deepClone,
+  createEmptyGrid,
+  encodeMoveToChar,
+  decodeCharToMove,
+  encodeMoves,
+  decodeMoves,
+  validateEncodedMoves
+} from '../utils';
+import { CellState, GlobalPosition } from '../types';
 
 describe('utils', () => {
   describe('checkLine', () => {
@@ -173,6 +184,95 @@ describe('utils', () => {
           expect(grid[row][col]).toBeNull();
         }
       }
+    });
+  });
+
+  describe('move encoding/decoding', () => {
+    describe('encodeMoveToChar / decodeCharToMove', () => {
+      it('should encode (0,0,0,0) to first character', () => {
+        const char = encodeMoveToChar({ boardRow: 0, boardCol: 0, cellRow: 0, cellCol: 0 });
+        expect(char).toBe('A');
+      });
+
+      it('should decode first character back to (0,0,0,0)', () => {
+        const move = decodeCharToMove('A');
+        expect(move).toEqual({ boardRow: 0, boardCol: 0, cellRow: 0, cellCol: 0 });
+      });
+
+      it('should encode and decode all 81 positions correctly', () => {
+        for (let boardRow = 0; boardRow < 3; boardRow++) {
+          for (let boardCol = 0; boardCol < 3; boardCol++) {
+            for (let cellRow = 0; cellRow < 3; cellRow++) {
+              for (let cellCol = 0; cellCol < 3; cellCol++) {
+                const original: GlobalPosition = { boardRow, boardCol, cellRow, cellCol };
+                const encoded = encodeMoveToChar(original);
+                const decoded = decodeCharToMove(encoded);
+                expect(decoded).toEqual(original);
+              }
+            }
+          }
+        }
+      });
+
+      it('should return null for invalid characters', () => {
+        expect(decodeCharToMove('^')).toBeNull();
+        expect(decodeCharToMove('+')).toBeNull();
+        expect(decodeCharToMove(' ')).toBeNull();
+      });
+    });
+
+    describe('encodeMoves / decodeMoves', () => {
+      it('should encode empty array to empty string', () => {
+        expect(encodeMoves([])).toBe('');
+      });
+
+      it('should decode empty string to empty array', () => {
+        expect(decodeMoves('')).toEqual([]);
+      });
+
+      it('should encode and decode a sequence of moves', () => {
+        const moves: GlobalPosition[] = [
+          { boardRow: 0, boardCol: 0, cellRow: 1, cellCol: 1 },
+          { boardRow: 1, boardCol: 1, cellRow: 0, cellCol: 0 },
+          { boardRow: 0, boardCol: 0, cellRow: 2, cellCol: 2 }
+        ];
+
+        const encoded = encodeMoves(moves);
+        const decoded = decodeMoves(encoded);
+        expect(decoded).toEqual(moves);
+      });
+
+      it('should return null for invalid encoded string', () => {
+        expect(decodeMoves('^+=')).toBeNull();
+      });
+    });
+
+    describe('validateEncodedMoves', () => {
+      it('should return true for valid encoded moves', () => {
+        expect(validateEncodedMoves('ABC')).toBe(true);
+        expect(validateEncodedMoves('')).toBe(true);
+        expect(validateEncodedMoves('AaBbCc')).toBe(true);
+      });
+
+      it('should return false for invalid characters', () => {
+        expect(validateEncodedMoves('^+=')).toBe(false);
+        expect(validateEncodedMoves('AB^C')).toBe(false);
+      });
+
+      it('should return false for non-string input', () => {
+        expect(validateEncodedMoves(null as any)).toBe(false);
+        expect(validateEncodedMoves(123 as any)).toBe(false);
+      });
+
+      it('should return false for too long string (>81 moves)', () => {
+        const tooLong = 'A'.repeat(82);
+        expect(validateEncodedMoves(tooLong)).toBe(false);
+      });
+
+      it('should return true for max length string (81 moves)', () => {
+        const maxLength = 'A'.repeat(81);
+        expect(validateEncodedMoves(maxLength)).toBe(true);
+      });
     });
   });
 });

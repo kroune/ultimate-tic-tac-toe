@@ -195,5 +195,131 @@ describe('GameEngine', () => {
       expect(result.success).toBe(false);
     });
   });
+
+  describe('history navigation', () => {
+    it('should start with historyIndex -1', () => {
+      const engine = new GameEngine();
+      expect(engine.getHistoryIndex()).toBe(-1);
+    });
+
+    it('should update historyIndex after move', () => {
+      const engine = new GameEngine();
+      engine.makeMove(0, 0, 0, 0);
+      expect(engine.getHistoryIndex()).toBe(0);
+      engine.makeMove(0, 0, 1, 1);
+      expect(engine.getHistoryIndex()).toBe(1);
+    });
+
+    it('should allow going back in history', () => {
+      const engine = new GameEngine();
+      engine.makeMove(0, 0, 0, 0);
+      engine.makeMove(0, 0, 1, 1);
+
+      expect(engine.canGoBack()).toBe(true);
+      engine.goBack();
+      expect(engine.getHistoryIndex()).toBe(0);
+      expect(engine.getCurrentPlayer()).toBe('O');
+    });
+
+    it('should allow going forward in history', () => {
+      const engine = new GameEngine();
+      engine.makeMove(0, 0, 0, 0);
+      engine.makeMove(0, 0, 1, 1);
+      engine.goBack();
+
+      expect(engine.canGoForward()).toBe(true);
+      engine.goForward();
+      expect(engine.getHistoryIndex()).toBe(1);
+      expect(engine.getCurrentPlayer()).toBe('X');
+    });
+
+    it('should go to start', () => {
+      const engine = new GameEngine();
+      engine.makeMove(0, 0, 0, 0);
+      engine.makeMove(0, 0, 1, 1);
+      engine.makeMove(1, 1, 2, 2);
+
+      engine.goToStart();
+      expect(engine.getHistoryIndex()).toBe(-1);
+      expect(engine.getCurrentPlayer()).toBe('X');
+    });
+
+    it('should go to end', () => {
+      const engine = new GameEngine();
+      engine.makeMove(0, 0, 0, 0);
+      engine.makeMove(0, 0, 1, 1);
+      engine.goToStart();
+
+      engine.goToEnd();
+      expect(engine.getHistoryIndex()).toBe(1);
+    });
+
+    it('should truncate future history when making new move from past', () => {
+      const engine = new GameEngine();
+      engine.makeMove(0, 0, 0, 0);
+      engine.makeMove(0, 0, 1, 1);
+      engine.makeMove(1, 1, 2, 2);
+
+      engine.goBack();
+      engine.goBack();
+      // Now at move 0
+
+      engine.makeMove(0, 0, 0, 1); // Different move
+
+      expect(engine.getMoveHistory().length).toBe(2);
+      expect(engine.getHistoryIndex()).toBe(1);
+    });
+
+    it('should not allow going back when at start', () => {
+      const engine = new GameEngine();
+      expect(engine.canGoBack()).toBe(false);
+      expect(engine.goBack()).toBe(false);
+    });
+
+    it('should not allow going forward when at end', () => {
+      const engine = new GameEngine();
+      engine.makeMove(0, 0, 0, 0);
+      expect(engine.canGoForward()).toBe(false);
+      expect(engine.goForward()).toBe(false);
+    });
+
+    it('should return false for invalid move index', () => {
+      const engine = new GameEngine();
+      engine.makeMove(0, 0, 0, 0);
+      expect(engine.goToMove(-2)).toBe(false);
+      expect(engine.goToMove(5)).toBe(false);
+    });
+  });
+
+  describe('URL encoding', () => {
+    it('should encode empty game to empty string', () => {
+      const engine = new GameEngine();
+      expect(engine.encodeForURL()).toBe('');
+    });
+
+    it('should encode and restore game state', () => {
+      const engine = new GameEngine();
+      engine.makeMove(0, 0, 0, 0);
+      engine.makeMove(0, 0, 1, 1);
+      engine.makeMove(1, 1, 2, 2);
+
+      const encoded = engine.encodeForURL();
+      const restored = GameEngine.fromEncodedMoves(encoded);
+
+      expect(restored).not.toBeNull();
+      expect(restored!.getMoveHistory().length).toBe(3);
+      expect(restored!.getCurrentPlayer()).toBe(engine.getCurrentPlayer());
+    });
+
+    it('should return null for invalid encoded string', () => {
+      expect(GameEngine.fromEncodedMoves('#$%')).toBeNull();
+    });
+
+    it('should return null for invalid move sequence', () => {
+      // Create an invalid sequence (e.g., move to wrong board)
+      const invalidSequence = 'AA'; // Same move twice
+      expect(GameEngine.fromEncodedMoves(invalidSequence)).toBeNull();
+    });
+  });
 });
 

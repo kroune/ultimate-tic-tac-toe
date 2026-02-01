@@ -1,4 +1,4 @@
-import { CellState, Player } from './types';
+import { CellState, Player, GlobalPosition } from './types';
 
 export function checkLine(a: CellState, b: CellState, c: CellState): Player | null {
   if (a !== null && a === b && b === c) {
@@ -41,5 +41,58 @@ export function createEmptyGrid(): CellState[][] {
     [null, null, null],
     [null, null, null]
   ];
+}
+
+/**
+ * Encode a move as a single base-81 digit (0-80 mapped to characters)
+ * Each move has 4 coordinates (boardRow, boardCol, cellRow, cellCol) each 0-2
+ * Total: 3*3*3*3 = 81 possibilities
+ * Using URL-safe characters: A-Z (26) + a-z (26) + 0-9 (10) + special (19) = 81
+ * Special chars used: -_.~!*,;()[]{}:@#
+ */
+// 26 uppercase + 26 lowercase + 10 digits = 62
+// Need 19 more URL-safe special chars: -_.~!*,;()[]{}:@#$%&
+const ENCODING_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~!*,;()[]{}:@#$%';
+
+export function encodeMoveToChar(move: GlobalPosition): string {
+  const index = move.boardRow * 27 + move.boardCol * 9 + move.cellRow * 3 + move.cellCol;
+  return ENCODING_ALPHABET[index];
+}
+
+export function decodeCharToMove(char: string): GlobalPosition | null {
+  const index = ENCODING_ALPHABET.indexOf(char);
+  if (index === -1 || index >= 81) return null;
+
+  return {
+    boardRow: Math.floor(index / 27),
+    boardCol: Math.floor((index % 27) / 9),
+    cellRow: Math.floor((index % 9) / 3),
+    cellCol: index % 3
+  };
+}
+
+export function encodeMoves(moves: GlobalPosition[]): string {
+  return moves.map(encodeMoveToChar).join('');
+}
+
+export function decodeMoves(encoded: string): GlobalPosition[] | null {
+  const moves: GlobalPosition[] = [];
+  for (const char of encoded) {
+    const move = decodeCharToMove(char);
+    if (move === null) return null;
+    moves.push(move);
+  }
+  return moves;
+}
+
+export function validateEncodedMoves(encoded: string): boolean {
+  if (typeof encoded !== 'string') return false;
+  if (encoded.length > 81) return false; // Max possible moves
+  for (const char of encoded) {
+    if (ENCODING_ALPHABET.indexOf(char) === -1 || ENCODING_ALPHABET.indexOf(char) >= 81) {
+      return false;
+    }
+  }
+  return true;
 }
 

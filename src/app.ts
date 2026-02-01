@@ -1,4 +1,4 @@
-import { GameEngine, GameState, Player } from './lib/ultimate-tic-tac-toe';
+import { GameEngine, GameState, Player, GlobalPosition } from './lib/ultimate-tic-tac-toe';
 
 class UltimateTicTacToeUI {
   private engine: GameEngine;
@@ -10,6 +10,11 @@ class UltimateTicTacToeUI {
   private modalElement: HTMLElement;
   private modalTitleElement: HTMLElement;
   private modalMessageElement: HTMLElement;
+  private historyListElement: HTMLElement;
+  private historyFirstBtn: HTMLButtonElement;
+  private historyPrevBtn: HTMLButtonElement;
+  private historyNextBtn: HTMLButtonElement;
+  private historyLastBtn: HTMLButtonElement;
 
   constructor() {
     this.engine = new GameEngine();
@@ -22,26 +27,99 @@ class UltimateTicTacToeUI {
     this.modalElement = document.getElementById('game-over-modal')!;
     this.modalTitleElement = document.getElementById('game-over-title')!;
     this.modalMessageElement = document.getElementById('game-over-message')!;
+    this.historyListElement = document.getElementById('history-list')!;
+    this.historyFirstBtn = document.getElementById('history-first') as HTMLButtonElement;
+    this.historyPrevBtn = document.getElementById('history-prev') as HTMLButtonElement;
+    this.historyNextBtn = document.getElementById('history-next') as HTMLButtonElement;
+    this.historyLastBtn = document.getElementById('history-last') as HTMLButtonElement;
 
+    this.loadFromURL();
     this.setupEventListeners();
     this.render();
+  }
+
+  private loadFromURL(): void {
+    const params = new URLSearchParams(window.location.search);
+    const gameState = params.get('g');
+
+    if (gameState) {
+      const restored = GameEngine.fromEncodedMoves(gameState);
+      if (restored) {
+        this.engine = restored;
+      }
+    }
+  }
+
+  private updateURL(): void {
+    const encoded = this.engine.encodeForURL();
+    const newURL = encoded
+      ? `${window.location.pathname}?g=${encoded}`
+      : window.location.pathname;
+
+    window.history.replaceState(null, '', newURL);
   }
 
   private setupEventListeners(): void {
     document.getElementById('reset-btn')!.addEventListener('click', () => this.resetGame());
     document.getElementById('new-game-btn')!.addEventListener('click', () => this.resetGame());
+
+    this.historyFirstBtn.addEventListener('click', () => this.goToStart());
+    this.historyPrevBtn.addEventListener('click', () => this.goBack());
+    this.historyNextBtn.addEventListener('click', () => this.goForward());
+    this.historyLastBtn.addEventListener('click', () => this.goToEnd());
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' && this.engine.canGoBack()) {
+        this.goBack();
+      } else if (e.key === 'ArrowRight' && this.engine.canGoForward()) {
+        this.goForward();
+      }
+    });
+  }
+
+  private goToStart(): void {
+    this.engine.goToStart();
+    this.render();
+    this.updateURL();
+  }
+
+  private goBack(): void {
+    this.engine.goBack();
+    this.render();
+    this.updateURL();
+  }
+
+  private goForward(): void {
+    this.engine.goForward();
+    this.render();
+    this.updateURL();
+  }
+
+  private goToEnd(): void {
+    this.engine.goToEnd();
+    this.render();
+    this.updateURL();
+  }
+
+  private goToMove(index: number): void {
+    this.engine.goToMove(index);
+    this.render();
+    this.updateURL();
   }
 
   private resetGame(): void {
     this.engine.reset();
     this.modalElement.hidden = true;
     this.render();
+    this.updateURL();
   }
 
   private render(): void {
     const state = this.engine.getGameState();
     this.renderBoard(state);
     this.renderGameInfo(state);
+    this.renderHistory();
   }
 
   private renderBoard(state: GameState): void {
@@ -130,11 +208,18 @@ class UltimateTicTacToeUI {
 
     if (result.success) {
       this.render();
+      this.updateURL();
 
       if (this.engine.isGameOver()) {
         this.showGameOverModal();
       }
     }
+  }
+
+  private getBoardPositionName(row: number, col: number): string {
+    const rowNames = ['верхняя', 'средняя', 'нижняя'];
+    const colNames = ['левая', 'центральная', 'правая'];
+    return `${rowNames[row]} ${colNames[col]}`;
   }
 
   private renderGameInfo(state: GameState): void {
@@ -146,10 +231,10 @@ class UltimateTicTacToeUI {
     if (state.isGameOver) {
       this.activeBoardInfoElement.textContent = 'Игра окончена';
     } else if (state.activeBoard === null) {
-      this.activeBoardInfoElement.textContent = 'Можно ходить на любую доску';
+      this.activeBoardInfoElement.textContent = 'Свободный ход — выбери любую доску';
     } else {
-      this.activeBoardInfoElement.textContent =
-        `Ходить на доску (${state.activeBoard.row + 1}, ${state.activeBoard.col + 1})`;
+      const posName = this.getBoardPositionName(state.activeBoard.row, state.activeBoard.col);
+      this.activeBoardInfoElement.textContent = `Твой ход: ${posName} доска`;
     }
 
     // Score
@@ -157,6 +242,66 @@ class UltimateTicTacToeUI {
     const oBoards = this.countWonBoards(state, 'O');
     this.scoreXElement.textContent = xBoards.toString();
     this.scoreOElement.textContent = oBoards.toString();
+  }
+
+  private renderHistory(): void {
+    const history = this.engine.getMoveHistory();
+    const currentIndex = this.engine.getHistoryIndex();
+
+    // Update navigation buttons
+    this.historyFirstBtn.disabled = !this.engine.canGoBack();
+    this.historyPrevBtn.disabled = !this.engine.canGoBack();
+    this.historyNextBtn.disabled = !this.engine.canGoForward();
+    this.historyLastBtn.disabled = !this.engine.canGoForward();
+
+    // Render history list
+    if (history.length === 0) {
+      this.historyListElement.innerHTML = '<div class="history-empty">Ходов пока нет</div>';
+      return;
+    }
+
+    this.historyListElement.innerHTML = '';
+
+    // Add start position item
+    const startItem = document.createElement('div');
+    startItem.className = `history-item${currentIndex === -1 ? ' active' : ''}`;
+    startItem.innerHTML = '<span class="move-number">0</span> Старт';
+    startItem.addEventListener('click', () => this.goToMove(-1));
+    this.historyListElement.appendChild(startItem);
+
+    history.forEach((move, index) => {
+      const item = document.createElement('div');
+      const isActive = index === currentIndex;
+      const isFuture = index > currentIndex;
+
+      item.className = 'history-item';
+      if (isActive) item.classList.add('active');
+      if (isFuture) item.classList.add('future');
+
+      const player = index % 2 === 0 ? 'X' : 'O';
+      const moveNotation = this.getMoveNotation(move);
+
+      item.innerHTML = `<span class="move-number">${index + 1}.</span> <span class="move-player ${player.toLowerCase()}">${player}</span> ${moveNotation}`;
+      item.addEventListener('click', () => this.goToMove(index));
+
+      this.historyListElement.appendChild(item);
+    });
+
+    // Scroll to active item
+    const activeItem = this.historyListElement.querySelector('.history-item.active');
+    if (activeItem) {
+      activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+
+  private getMoveNotation(move: GlobalPosition): string {
+    // Notation: board position (row, col) -> cell position (row, col)
+    // Using chess-like notation: a1-i9 style or simple coordinates
+    const boardLetter = String.fromCharCode(97 + move.boardCol); // a, b, c
+    const boardNum = 3 - move.boardRow; // 3, 2, 1
+    const cellLetter = String.fromCharCode(97 + move.cellCol);
+    const cellNum = 3 - move.cellRow;
+    return `${boardLetter}${boardNum}:${cellLetter}${cellNum}`;
   }
 
   private countWonBoards(state: GameState, player: Player): number {
@@ -196,4 +341,3 @@ class UltimateTicTacToeUI {
 document.addEventListener('DOMContentLoaded', () => {
   new UltimateTicTacToeUI();
 });
-
