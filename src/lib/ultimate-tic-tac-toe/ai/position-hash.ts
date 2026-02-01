@@ -15,22 +15,33 @@ const ACTIVE_BOARD_OFFSET = BOARD_SIZE * 2;  // 9 позиций + 1 для null
 const PLAYER_OFFSET = ACTIVE_BOARD_OFFSET + 10;
 
 // Инициализация Zobrist таблицы с детерминированными "случайными" числами
-// Используем простую PRNG для воспроизводимости
+// Используем xorshift128+ для лучшего качества случайных чисел
 function initZobristTable(): void {
   if (ZOBRIST_TABLE.length > 0) return; // Уже инициализирована
 
-  // Simple PRNG (Linear Congruential Generator) для 64-bit чисел
-  // Параметры из Numerical Recipes
-  let state = BigInt(0x12345678DEADBEEF);
-  const a = BigInt(6364136223846793005);
-  const c = BigInt(1442695040888963407);
-  const m = BigInt(1) << BigInt(64);
+  // xorshift128+ PRNG - хорошее качество для Zobrist хэширования
+  // Состояние: два 64-битных числа
+  let s0 = BigInt('0x12345678DEADBEEF');
+  let s1 = BigInt('0xCAFEBABE87654321');
+
+  const MASK_64 = (BigInt(1) << BigInt(64)) - BigInt(1);
+
+  function next(): bigint {
+    let x = s0;
+    const y = s1;
+    s0 = y;
+    // xorshift128+ step
+    x ^= (x << BigInt(23)) & MASK_64;
+    x ^= x >> BigInt(17);
+    x ^= y ^ (y >> BigInt(26));
+    s1 = x;
+    return (x + y) & MASK_64;
+  }
 
   const totalEntries = PLAYER_OFFSET + 2;
 
   for (let i = 0; i < totalEntries; i++) {
-    state = (a * state + c) % m;
-    ZOBRIST_TABLE.push(state);
+    ZOBRIST_TABLE.push(next());
   }
 }
 
