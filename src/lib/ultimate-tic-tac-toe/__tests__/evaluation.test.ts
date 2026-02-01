@@ -46,9 +46,9 @@ describe('evaluatePosition', () => {
       const score = evaluatePosition(state, 0);
 
       // На пустой доске у X небольшое преимущество из-за мобильности
-      // (свободный выбор доски)
+      // (свободный выбор доски) и позиционных бонусов
       expect(score).toBeGreaterThanOrEqual(0);
-      expect(score).toBeLessThan(100); // Не должно быть большим
+      expect(score).toBeLessThan(300); // Не должно быть слишком большим
     });
 
     it('should give positive score when X wins a small board', () => {

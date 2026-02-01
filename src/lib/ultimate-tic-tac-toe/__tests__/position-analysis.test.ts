@@ -790,7 +790,9 @@ describe('Position Analysis - Evaluation Consistency', () => {
       const ai = new AIPlayer({ maxDepth: 2 });
       const score = ai.evaluateCurrentPosition(engine);
 
-      expect(Math.abs(score)).toBeLessThan(100);
+      // With improved heuristics, empty board has small positional value
+      // due to free board choice bonus
+      expect(Math.abs(score)).toBeLessThan(300);
     });
   });
 

@@ -159,7 +159,9 @@ describe('AIPlayer', () => {
       const ai = new AIPlayer();
 
       const score = ai.evaluateCurrentPosition(engine);
-      expect(Math.abs(score)).toBeLessThan(100);
+      // With new heuristics, empty board can have small positional value
+      // due to free board choice bonus
+      expect(Math.abs(score)).toBeLessThan(300);
     });
 
     it('should return positive score when X is winning', () => {
