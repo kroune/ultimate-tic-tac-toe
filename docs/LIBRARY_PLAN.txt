@@ -1,0 +1,270 @@
+# План разработки TypeScript библиотеки Ultimate Tic-Tac-Toe
+# ============================================================
+
+## Обзор
+
+Создание отдельного TypeScript модуля для игры супер-крестики-нолики 9×9
+без внешних зависимостей. Библиотека будет иметь чистую архитектуру с
+разделением на типы, модели малой/глобальной доски и игровой движок.
+Включает полное покрытие юнит-тестами.
+
+
+## Структура файлов
+
+src/
+  lib/
+    ultimate-tic-tac-toe/
+      index.ts                 # Публичный API (реэкспорт)
+      types.ts                 # Типы и интерфейсы
+      small-board.ts           # Класс малой доски 3×3
+      global-board.ts          # Класс глобальной доски
+      game-engine.ts           # Игровой движок (основная логика)
+      utils.ts                 # Вспомогательные функции
+      __tests__/
+        small-board.test.ts
+        global-board.test.ts
+        game-engine.test.ts
+        utils.test.ts
+
+
+## Этапы разработки
+
+### Этап 1: Настройка окружения
+- Добавить TypeScript, Jest и ts-jest в package.json
+- Создать tsconfig.json с strict: true
+- Настроить Jest для TypeScript
+
+### Этап 2: Типы и интерфейсы (types.ts)
+
+Определить следующие типы:
+
+  type Player = 'X' | 'O';
+
+  type CellState = Player | null;
+
+  interface Position {
+    row: number;  // 0-2
+    col: number;  // 0-2
+  }
+
+  interface GlobalPosition {
+    boardRow: number;  // 0-2 (позиция малой доски на глобальной)
+    boardCol: number;  // 0-2
+    cellRow: number;   // 0-2 (позиция клетки внутри малой доски)
+    cellCol: number;   // 0-2
+  }
+
+  type SmallBoardStatus =
+    | { type: 'playing' }
+    | { type: 'won'; winner: Player }
+    | { type: 'draw' };
+
+  interface GameState {
+    currentPlayer: Player;
+    activeBoard: Position | null;  // null = можно ходить на любую
+    globalBoard: SmallBoardStatus[][];  // 3x3 статусы малых досок
+    boards: CellState[][][];  // 3x3 массив малых досок (каждая 3x3)
+    isGameOver: boolean;
+    winner: Player | null;
+  }
+
+  type MoveResult =
+    | { success: true; newState: GameState }
+    | { success: false; error: string };
+
+  interface GameResult {
+    winner: Player | null;  // null = ничья
+    wonBoardsX: number;
+    wonBoardsO: number;
+  }
+
+### Этап 3: Класс SmallBoard (small-board.ts)
+
+Ответственность: логика одной малой доски 3×3
+
+Поля:
+  - cells: CellState[][] (3x3)
+  - status: SmallBoardStatus
+
+Методы:
+  - constructor()
+  - makeMove(row: number, col: number, player: Player): boolean
+  - checkWinner(): Player | null
+  - isFull(): boolean
+  - getStatus(): SmallBoardStatus
+  - getAvailableMoves(): Position[]
+  - getCell(row: number, col: number): CellState
+  - clone(): SmallBoard (для иммутабельности, если потребуется)
+
+### Этап 4: Класс GlobalBoard (global-board.ts)
+
+Ответственность: управление 9 малыми досками
+
+Поля:
+  - boards: SmallBoard[][] (3x3)
+
+Методы:
+  - constructor()
+  - getSmallBoard(row: number, col: number): SmallBoard
+  - getGlobalStatus(): SmallBoardStatus[][] (статусы всех малых досок)
+  - checkGlobalWinner(): Player | null
+  - countWonBoards(player: Player): number
+  - isSmallBoardPlayable(row: number, col: number): boolean
+  - getPlayableBoards(): Position[]
+  - clone(): GlobalBoard
+
+### Этап 5: Класс GameEngine (game-engine.ts)
+
+Ответственность: основной игровой движок, объединяющий всё
+
+Поля:
+  - globalBoard: GlobalBoard
+  - currentPlayer: Player
+  - activeBoard: Position | null  // куда должен пойти текущий игрок
+  - isGameOver: boolean
+  - winner: Player | null
+  - moveHistory: GlobalPosition[] (опционально)
+
+Методы:
+  - constructor()
+  - makeMove(boardRow: number, boardCol: number,
+             cellRow: number, cellCol: number): MoveResult
+  - getValidMoves(): GlobalPosition[]
+  - getCurrentPlayer(): Player
+  - getActiveBoard(): Position | null
+  - getGameState(): GameState
+  - isGameOver(): boolean
+  - getWinner(): Player | null
+  - getGameResult(): GameResult | null
+  - reset(): void
+  - serialize(): string (для сохранения)
+  - static deserialize(data: string): GameEngine (для загрузки)
+
+Логика makeMove():
+  1. Проверить, что игра не окончена
+  2. Проверить, что ход в разрешённую доску:
+     - Если activeBoard !== null, ход должен быть на эту доску
+     - Если activeBoard === null, ход на любую играбельную доску
+  3. Проверить, что целевая клетка свободна
+  4. Сделать ход на малой доске
+  5. Проверить победу на малой доске
+  6. Проверить глобальную победу
+  7. Определить следующую activeBoard:
+     - Если доска по координатам (cellRow, cellCol) играбельна → activeBoard = {cellRow, cellCol}
+     - Иначе → activeBoard = null (свободный выбор)
+  8. Сменить игрока
+  9. Вернуть результат
+
+### Этап 6: Вспомогательные функции (utils.ts)
+
+  - checkLine(a: CellState, b: CellState, c: CellState): Player | null
+  - checkWinnerOnGrid(grid: CellState[][]): Player | null
+  - isValidPosition(row: number, col: number): boolean
+  - deepClone<T>(obj: T): T
+
+
+## Публичный API (index.ts)
+
+export { GameEngine } from './game-engine';
+export { SmallBoard } from './small-board';
+export { GlobalBoard } from './global-board';
+export type {
+  Player,
+  CellState,
+  Position,
+  GlobalPosition,
+  SmallBoardStatus,
+  GameState,
+  MoveResult,
+  GameResult
+} from './types';
+
+
+## План юнит-тестов
+
+### small-board.test.ts
+1. Создание пустой доски
+2. Корректный ход в свободную клетку
+3. Отклонение хода в занятую клетку
+4. Определение победителя по горизонтали (3 варианта)
+5. Определение победителя по вертикали (3 варианта)
+6. Определение победителя по диагонали (2 варианта)
+7. Определение ничьей (доска заполнена, нет победителя)
+8. Получение списка доступных ходов
+9. Статус доски: playing → won → draw
+
+### global-board.test.ts
+1. Создание 9 пустых досок
+2. Получение малой доски по координатам
+3. Статус малых досок после ходов
+4. Определение глобального победителя по горизонтали
+5. Определение глобального победителя по вертикали
+6. Определение глобального победителя по диагонали
+7. Подсчёт выигранных досок для каждого игрока
+8. Определение играбельных досок
+
+### game-engine.test.ts
+1. Начальное состояние: X ходит первым, activeBoard = null
+2. Чередование игроков после хода
+3. Правильное определение activeBoard после хода
+4. Свободный выбор доски, если целевая выиграна
+5. Свободный выбор доски, если целевая заполнена
+6. Отклонение хода в неразрешённую доску
+7. Отклонение хода в выигранную доску
+8. Определение победы в игре
+9. Определение ничьей (по количеству выигранных досок)
+10. Сброс игры
+11. Сериализация и десериализация состояния
+
+### utils.test.ts
+1. Проверка линии из трёх X
+2. Проверка линии из трёх O
+3. Проверка смешанной линии (null)
+4. Валидация позиций (0-2 допустимо, остальное нет)
+
+
+## Дополнительные соображения
+
+### Сериализация/Десериализация
+Рекомендуется реализовать для:
+- Сохранения игры в localStorage
+- Передачи состояния по сети (мультиплеер)
+- Отката к предыдущему состоянию
+
+### История ходов
+Опционально добавить:
+- moveHistory: GlobalPosition[]
+- undo(): MoveResult
+Полезно для UI (кнопка "Отменить ход"), но усложняет код.
+
+### Иммутабельность
+Методы могут возвращать новые объекты вместо мутации.
+Упрощает интеграцию с React/Vue, но может влиять на производительность.
+Рекомендую: мутабельные методы + clone() для копирования при необходимости.
+
+
+## Оценка времени
+
+Этап 1 (Настройка)      : ~30 минут
+Этап 2 (Типы)           : ~30 минут
+Этап 3 (SmallBoard)     : ~1 час
+Этап 4 (GlobalBoard)    : ~1 час
+Этап 5 (GameEngine)     : ~2 часа
+Этап 6 (Utils)          : ~30 минут
+Юнит-тесты              : ~2-3 часа
+Рефакторинг и полировка : ~1 час
+--------------------------------------
+Итого                   : ~8-10 часов
+
+
+## Зависимости для разработки
+
+devDependencies:
+  - typescript
+  - jest
+  - ts-jest
+  - @types/jest
+
+dependencies:
+  (нет - библиотека без зависимостей)
+
