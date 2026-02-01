@@ -1,6 +1,6 @@
 import { MinimaxSearch } from '../ai/minimax';
 import { GameEngine } from '../game-engine';
-import { AIConfig } from '../ai/types';
+import { AIConfig } from '../ai';
 
 describe('MinimaxSearch', () => {
   const defaultConfig: AIConfig = {
@@ -136,7 +136,7 @@ describe('MinimaxSearch', () => {
       // Заполняем кэш первым поиском
       search.findBestMove(engine);
       const stats1 = search.getStats();
-
+      stats1
       // Очищаем таблицу
       search.clearTable();
 

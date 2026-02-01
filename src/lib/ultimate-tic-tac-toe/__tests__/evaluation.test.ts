@@ -1,4 +1,4 @@
-import { evaluatePosition, SCORE_WIN, SCORE_LOSS, SCORE_DRAW } from '../ai/evaluation';
+import { evaluatePosition, SCORE_WIN, SCORE_LOSS, SCORE_DRAW } from '../ai';
 import { GameEngine } from '../game-engine';
 import { GameState } from '../types';
 

@@ -86,7 +86,6 @@ export function decodeMoves(encoded: string): GlobalPosition[] | null {
 }
 
 export function validateEncodedMoves(encoded: string): boolean {
-  if (typeof encoded !== 'string') return false;
   if (encoded.length > 81) return false; // Max possible moves
   for (const char of encoded) {
     if (ENCODING_ALPHABET.indexOf(char) === -1 || ENCODING_ALPHABET.indexOf(char) >= 81) {

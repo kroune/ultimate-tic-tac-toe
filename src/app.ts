@@ -46,6 +46,7 @@ class UltimateTicTacToeUI {
   private hintBtn: HTMLButtonElement;
   private thinkingIndicator: HTMLElement;
   private hintDepthInput: HTMLInputElement;
+  private modalCloseBtn: HTMLButtonElement;
 
   constructor() {
     this.engine = new GameEngine();
@@ -75,6 +76,7 @@ class UltimateTicTacToeUI {
     this.hintBtn = document.getElementById('hint-btn') as HTMLButtonElement;
     this.thinkingIndicator = document.getElementById('thinking-indicator')!;
     this.hintDepthInput = document.getElementById('hint-depth') as HTMLInputElement;
+    this.modalCloseBtn = document.getElementById('modal-close-btn') as HTMLButtonElement;
 
     this.loadFromURL();
     this.setupEventListeners();
@@ -180,6 +182,14 @@ class UltimateTicTacToeUI {
   private setupEventListeners(): void {
     document.getElementById('reset-btn')!.addEventListener('click', () => this.resetGame());
     document.getElementById('new-game-btn')!.addEventListener('click', () => this.resetGame());
+
+    // Modal close handlers
+    this.modalCloseBtn.addEventListener('click', () => this.closeModal());
+    this.modalElement.addEventListener('click', (e) => {
+      if (e.target === this.modalElement) {
+        this.closeModal();
+      }
+    });
 
     this.historyFirstBtn.addEventListener('click', () => this.goToStart());
     this.historyPrevBtn.addEventListener('click', () => this.goBack());
@@ -697,6 +707,10 @@ class UltimateTicTacToeUI {
     }
 
     this.modalElement.hidden = false;
+  }
+
+  private closeModal(): void {
+    this.modalElement.hidden = true;
   }
 }
 

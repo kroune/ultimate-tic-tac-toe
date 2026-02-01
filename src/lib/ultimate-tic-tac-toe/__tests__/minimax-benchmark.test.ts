@@ -5,7 +5,7 @@
 
 import { GameEngine } from '../game-engine';
 import { MinimaxSearch } from '../ai/minimax';
-import { AIConfig } from '../ai/types';
+import { AIConfig } from '../ai';
 
 // Helper to measure time in ms
 function measureTime(fn: () => void): number {
@@ -349,6 +349,7 @@ describe('Minimax Benchmark', () => {
       ]);
 
       const search = new MinimaxSearch(createConfig(4));
+      search
       const iterations = 5;
       const times: number[] = [];
 
