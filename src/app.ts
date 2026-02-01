@@ -286,12 +286,6 @@ class UltimateTicTacToeUI {
 
       this.historyListElement.appendChild(item);
     });
-
-    // Scroll to active item
-    const activeItem = this.historyListElement.querySelector('.history-item.active');
-    if (activeItem) {
-      activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
   }
 
   private getMoveNotation(move: GlobalPosition): string {
