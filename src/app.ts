@@ -22,6 +22,7 @@ class UltimateTicTacToeUI {
   private hintMove: GlobalPosition | null = null;
   private hintTimeoutId: number | null = null;
   private hoveredCell: GlobalPosition | null = null;
+  private isTouchDevice: boolean = false;
 
   private boardElement: HTMLElement;
   private currentPlayerElement: HTMLElement;
@@ -52,6 +53,9 @@ class UltimateTicTacToeUI {
     this.engine = new GameEngine();
     this.aiWorker = new Worker('./js/ai-worker.js');
     this.setupWorkerListener();
+
+    // Detect touch device - check for touch capability
+    this.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
     this.boardElement = document.getElementById('game-board')!;
     this.currentPlayerElement = document.getElementById('current-player')!;
@@ -458,13 +462,15 @@ class UltimateTicTacToeUI {
       cell.textContent = cellState;
       cell.classList.add('occupied', cellState.toLowerCase());
     } else if (boardPlayable && !this.isThinking) {
-      // Add hover preview functionality
-      cell.addEventListener('mouseenter', () => {
-        this.showPreview(boardRow, boardCol, cellRow, cellCol, state.currentPlayer);
-      });
-      cell.addEventListener('mouseleave', () => {
-        this.hidePreview();
-      });
+      // Add hover preview functionality only on non-touch devices
+      if (!this.isTouchDevice) {
+        cell.addEventListener('mouseenter', () => {
+          this.showPreview(boardRow, boardCol, cellRow, cellCol, state.currentPlayer);
+        });
+        cell.addEventListener('mouseleave', () => {
+          this.hidePreview();
+        });
+      }
       cell.addEventListener('click', () => this.handleCellClick(boardRow, boardCol, cellRow, cellCol));
     }
 
@@ -559,6 +565,7 @@ class UltimateTicTacToeUI {
 
     this.clearHint();
     this.hoveredCell = null;
+    this.clearTargetBoardHighlight();
     const result = this.engine.makeMove(boardRow, boardCol, cellRow, cellCol);
 
     if (result.success) {

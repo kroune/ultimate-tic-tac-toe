@@ -416,8 +416,11 @@ body {
   user-select: none;
 }
 
-.cell:hover:not(.occupied) {
-  background: var(--border-color);
+/* Disable hover effects on touch devices */
+@media (hover: hover) {
+  .cell:hover:not(.occupied) {
+    background: var(--border-color);
+  }
 }
 
 .cell.occupied {
