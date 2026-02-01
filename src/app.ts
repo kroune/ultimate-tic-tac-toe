@@ -151,7 +151,7 @@ class UltimateTicTacToeUI {
     // Bot settings
     this.botDifficultyInput.addEventListener('change', () => {
       const depth = parseInt(this.botDifficultyInput.value) || 4;
-      this.aiDepth = Math.max(1, Math.min(12, depth));
+      this.aiDepth = Math.max(1, Math.min(81, depth));
     });
 
     // Hint depth settings
@@ -177,7 +177,16 @@ class UltimateTicTacToeUI {
     this.modeBotBtn.classList.toggle('active', mode === 'bot');
     this.botSettingsElement.hidden = mode === 'friend';
 
-    this.resetGame();
+    // Don't reset the game, just update UI and check if bot needs to move
+    this.render();
+
+    // If switching to bot mode and it's bot's turn, make bot move
+    if (mode === 'bot' && !this.engine.isGameOver()) {
+      const currentPlayer = this.engine.getCurrentPlayer();
+      if (currentPlayer !== this.humanPlayer) {
+        this.makeBotMove();
+      }
+    }
   }
 
   private async showHint(): Promise<void> {

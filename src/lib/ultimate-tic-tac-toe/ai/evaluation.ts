@@ -12,15 +12,19 @@ export const SCORE_DRAW = 0;
 
 // Веса для эвристики
 const WEIGHTS = {
-  wonBoard: 1000,           // Выигранная малая доска
-  twoInRowGlobal: 300,      // Два в ряд на глобальной доске
-  twoInRowLocal: 30,        // Два в ряд на малой доске
-  centerBoard: 150,         // Бонус за центральную доску (1,1)
-  cornerBoard: 50,          // Бонус за угловую доску
-  centerCell: 10,           // Центральная клетка малой доски
-  cornerCell: 5,            // Угловая клетка малой доски
-  mobility: 2,              // Бонус за количество доступных ходов
-  sendToWonBoard: 100,      // Бонус если отправляем противника на недоступную доску
+  wonBoard: 1000,             // Выигранная малая доска
+  twoInRowGlobal: 300,        // Два в ряд на глобальной доске
+  twoInRowLocal: 30,          // Два в ряд на малой доске
+  blockTwoInRowGlobal: 250,   // Блокировка угрозы на глобальной доске
+  blockTwoInRowLocal: 25,     // Блокировка угрозы на малой доске
+  centerBoard: 150,           // Бонус за центральную доску (1,1)
+  cornerBoard: 50,            // Бонус за угловую доску
+  centerCell: 10,             // Центральная клетка малой доски
+  cornerCell: 5,              // Угловая клетка малой доски
+  mobility: 3,                // Бонус за количество доступных ходов
+  sendToWonBoard: 120,        // Бонус если отправляем противника на недоступную доску
+  sendToGoodBoard: 40,        // Бонус если отправляем на доску, где мы лидируем
+  controlBoard: 15,           // Бонус за контроль доски (больше фигур)
 };
 
 // Позиционные множители для досок (центр важнее углов, углы важнее рёбер)
@@ -72,6 +76,9 @@ export function evaluatePosition(state: GameState, depth: number = 0): number {
   // 3. Позиционные факторы
   score += evaluatePositionalFactors(state);
 
+  // 4. Оценка куда мы "отправляем" противника
+  score += evaluateSendingOpponent(state);
+
   return score;
 }
 
@@ -97,6 +104,10 @@ function evaluateGlobalBoard(globalBoard: SmallBoardStatus[][]): number {
   score += countTwoInRowOnGlobalBoard(globalBoard, 'X') * WEIGHTS.twoInRowGlobal;
   score -= countTwoInRowOnGlobalBoard(globalBoard, 'O') * WEIGHTS.twoInRowGlobal;
 
+  // Блокировка угроз противника
+  score += countBlockedThreatsOnGlobalBoard(globalBoard, 'X') * WEIGHTS.blockTwoInRowGlobal;
+  score -= countBlockedThreatsOnGlobalBoard(globalBoard, 'O') * WEIGHTS.blockTwoInRowGlobal;
+
   return score;
 }
 
@@ -121,6 +132,35 @@ function countTwoInRowOnGlobalBoard(globalBoard: SmallBoardStatus[][], player: P
 
     // Два в ряд с возможностью завершить линию
     if (playerCount === 2 && emptyCount === 1) {
+      count++;
+    }
+  }
+
+  return count;
+}
+
+/**
+ * Подсчитывает заблокированные угрозы противника на глобальной доске.
+ * Это линии где противник имел два в ряд, но третья позиция занята нами.
+ */
+function countBlockedThreatsOnGlobalBoard(globalBoard: SmallBoardStatus[][], player: Player): number {
+  const opponent: Player = player === 'X' ? 'O' : 'X';
+  let count = 0;
+
+  for (const line of LINES) {
+    let opponentCount = 0;
+    let playerCount = 0;
+
+    for (const [row, col] of line) {
+      const status = globalBoard[row][col];
+      if (status.type === 'won') {
+        if (status.winner === opponent) opponentCount++;
+        else if (status.winner === player) playerCount++;
+      }
+    }
+
+    // Противник имел 2, но мы заблокировали третью позицию
+    if (opponentCount === 2 && playerCount === 1) {
       count++;
     }
   }
@@ -157,12 +197,17 @@ function evaluateLocalBoards(boards: CellState[][][][], globalBoard: SmallBoardS
  */
 function evaluateSmallBoard(cells: CellState[][]): number {
   let score = 0;
+  let xCount = 0;
+  let oCount = 0;
 
   // Оценка отдельных клеток
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 3; col++) {
       const cell = cells[row][col];
       if (cell === null) continue;
+
+      if (cell === 'X') xCount++;
+      else oCount++;
 
       let value = 0;
 
@@ -183,9 +228,20 @@ function evaluateSmallBoard(cells: CellState[][]): number {
     }
   }
 
+  // Контроль доски (кто имеет больше фигур)
+  if (xCount > oCount) {
+    score += WEIGHTS.controlBoard * (xCount - oCount);
+  } else if (oCount > xCount) {
+    score -= WEIGHTS.controlBoard * (oCount - xCount);
+  }
+
   // Два в ряд на малой доске
   score += countTwoInRowOnSmallBoard(cells, 'X') * WEIGHTS.twoInRowLocal;
   score -= countTwoInRowOnSmallBoard(cells, 'O') * WEIGHTS.twoInRowLocal;
+
+  // Блокировка угроз на малой доске
+  score += countBlockedThreatsOnSmallBoard(cells, 'X') * WEIGHTS.blockTwoInRowLocal;
+  score -= countBlockedThreatsOnSmallBoard(cells, 'O') * WEIGHTS.blockTwoInRowLocal;
 
   return score;
 }
@@ -218,6 +274,32 @@ function countTwoInRowOnSmallBoard(cells: CellState[][], player: Player): number
 }
 
 /**
+ * Подсчитывает заблокированные угрозы противника на малой доске.
+ */
+function countBlockedThreatsOnSmallBoard(cells: CellState[][], player: Player): number {
+  const opponent: Player = player === 'X' ? 'O' : 'X';
+  let count = 0;
+
+  for (const line of LINES) {
+    let opponentCount = 0;
+    let playerCount = 0;
+
+    for (const [row, col] of line) {
+      const cell = cells[row][col];
+      if (cell === opponent) opponentCount++;
+      else if (cell === player) playerCount++;
+    }
+
+    // Противник имел 2, но мы заблокировали
+    if (opponentCount === 2 && playerCount === 1) {
+      count++;
+    }
+  }
+
+  return count;
+}
+
+/**
  * Оценивает позиционные факторы: мобильность и т.д.
  */
 function evaluatePositionalFactors(state: GameState): number {
@@ -233,3 +315,81 @@ function evaluatePositionalFactors(state: GameState): number {
   return score;
 }
 
+/**
+ * Оценивает куда мы "отправляем" противника (на какую доску он должен ходить).
+ * Хорошо: отправить на уже выигранную/заполненную доску (даёт свободный выбор)
+ * Хорошо: отправить на доску, где мы лидируем
+ */
+function evaluateSendingOpponent(state: GameState): number {
+  // Если у нас свободный выбор — этот бонус не применяется
+  // (оценка для предыдущего хода, который привёл к этой ситуации)
+  if (state.activeBoard === null) {
+    return 0;
+  }
+
+  const targetBoard = state.activeBoard;
+  const targetStatus = state.globalBoard[targetBoard.row][targetBoard.col];
+  const currentPlayer = state.currentPlayer;
+
+  // Если противник отправлен на закрытую доску — это было бы хорошо,
+  // но тогда activeBoard был бы null. Если activeBoard не null,
+  // значит доска открыта.
+
+  // Оценка позиции на целевой доске
+  if (targetStatus.type === 'playing') {
+    const cells = state.boards[targetBoard.row][targetBoard.col];
+    const { xCount, oCount, xThreats, oThreats } = analyzeBoard(cells);
+
+    // Если текущий игрок (кто ДОЛЖЕН ходить) имеет меньше контроля
+    // значит предыдущий игрок хорошо отправил его
+    let sendBonus = 0;
+
+    if (currentPlayer === 'X') {
+      // X должен ходить, O отправил. Хорошо для O если X слабый на этой доске
+      if (oCount > xCount) {
+        sendBonus = -WEIGHTS.sendToGoodBoard * (oCount - xCount);
+      }
+      if (oThreats > 0 && xThreats === 0) {
+        sendBonus -= WEIGHTS.sendToGoodBoard; // O имеет угрозу, X нет
+      }
+    } else {
+      // O должен ходить, X отправил. Хорошо для X если O слабый на этой доске
+      if (xCount > oCount) {
+        sendBonus = WEIGHTS.sendToGoodBoard * (xCount - oCount);
+      }
+      if (xThreats > 0 && oThreats === 0) {
+        sendBonus += WEIGHTS.sendToGoodBoard; // X имеет угрозу, O нет
+      }
+    }
+
+    return sendBonus;
+  }
+
+  return 0;
+}
+
+/**
+ * Анализирует малую доску и возвращает статистику.
+ */
+function analyzeBoard(cells: CellState[][]): {
+  xCount: number;
+  oCount: number;
+  xThreats: number;
+  oThreats: number;
+} {
+  let xCount = 0;
+  let oCount = 0;
+
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      const cell = cells[row][col];
+      if (cell === 'X') xCount++;
+      else if (cell === 'O') oCount++;
+    }
+  }
+
+  const xThreats = countTwoInRowOnSmallBoard(cells, 'X');
+  const oThreats = countTwoInRowOnSmallBoard(cells, 'O');
+
+  return { xCount, oCount, xThreats, oThreats };
+}

@@ -45,5 +45,7 @@ export interface SearchStats {
   cacheHits: number;
   /** Количество отсечений */
   cutoffs: number;
+  /** Максимальная реально достигнутая глубина (ply от корня) */
+  maxPlyReached: number;
 }
 

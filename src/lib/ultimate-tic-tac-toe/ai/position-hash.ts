@@ -1,51 +1,144 @@
 /**
  * Position hashing for transposition table.
- * Computes a unique hash key for the game state.
+ * Uses Zobrist hashing for efficient incremental updates.
  */
 
 import { GameState } from '../types';
 
+// Zobrist таблица: случайные числа для каждой комбинации (позиция, фигура)
+// 81 клетка × 2 фигуры (X, O) + 9 активных досок + 1 для null activeBoard + 2 игрока
+const ZOBRIST_TABLE: bigint[] = [];
+const BOARD_SIZE = 81;
+const CELL_OFFSET_X = 0;
+const CELL_OFFSET_O = BOARD_SIZE;
+const ACTIVE_BOARD_OFFSET = BOARD_SIZE * 2;  // 9 позиций + 1 для null
+const PLAYER_OFFSET = ACTIVE_BOARD_OFFSET + 10;
+
+// Инициализация Zobrist таблицы с детерминированными "случайными" числами
+// Используем простую PRNG для воспроизводимости
+function initZobristTable(): void {
+  if (ZOBRIST_TABLE.length > 0) return; // Уже инициализирована
+
+  // Simple PRNG (Linear Congruential Generator) для 64-bit чисел
+  // Параметры из Numerical Recipes
+  let state = BigInt(0x12345678DEADBEEF);
+  const a = BigInt(6364136223846793005);
+  const c = BigInt(1442695040888963407);
+  const m = BigInt(1) << BigInt(64);
+
+  const totalEntries = PLAYER_OFFSET + 2;
+
+  for (let i = 0; i < totalEntries; i++) {
+    state = (a * state + c) % m;
+    ZOBRIST_TABLE.push(state);
+  }
+}
+
+// Инициализируем при загрузке модуля
+initZobristTable();
+
 /**
- * Вычисляет уникальный хэш-ключ для позиции.
- * Используется как ключ в транспозиционной таблице.
- *
- * Структура:
- * - 81 клетка кодируются в base-3 (0=пусто, 1=X, 2=O)
- * - Группируем по 18 клеток (2 доски) для компактности
- * - Добавляем текущего игрока и активную доску
+ * Вычисляет полный Zobrist хэш для игрового состояния.
+ * Используется для начальной позиции, далее можно обновлять инкрементально.
  */
-export function computePositionHash(state: GameState): string {
-  const parts: number[] = [];
+export function computeZobristHash(state: GameState): bigint {
+  let hash = BigInt(0);
 
-  // Кодируем 9 малых досок, каждая по 9 клеток
-  // Группируем по 2 доски (18 клеток) — 3^18 = 387_420_489 < 2^29
-  for (let group = 0; group < 5; group++) {
-    let value = 0;
-    const startBoard = group * 2;
-    const endBoard = Math.min(startBoard + 2, 9);
-
-    for (let boardIdx = startBoard; boardIdx < endBoard; boardIdx++) {
-      const boardRow = Math.floor(boardIdx / 3);
-      const boardCol = boardIdx % 3;
-
+  // Хэш всех клеток
+  for (let boardRow = 0; boardRow < 3; boardRow++) {
+    for (let boardCol = 0; boardCol < 3; boardCol++) {
       for (let cellRow = 0; cellRow < 3; cellRow++) {
         for (let cellCol = 0; cellCol < 3; cellCol++) {
           const cell = state.boards[boardRow][boardCol][cellRow][cellCol];
-          const cellValue = cell === null ? 0 : cell === 'X' ? 1 : 2;
-          value = value * 3 + cellValue;
+          if (cell !== null) {
+            const position = boardRow * 27 + boardCol * 9 + cellRow * 3 + cellCol;
+            const offset = cell === 'X' ? CELL_OFFSET_X : CELL_OFFSET_O;
+            hash ^= ZOBRIST_TABLE[offset + position];
+          }
         }
       }
     }
-    parts.push(value);
   }
 
-  // Метаданные: игрок (0/1) + активная доска (0-9, где 9 = null)
-  const playerBit = state.currentPlayer === 'X' ? 0 : 1;
-  const activeBoardValue = state.activeBoard
-    ? state.activeBoard.row * 3 + state.activeBoard.col
-    : 9;
+  // Хэш активной доски
+  if (state.activeBoard) {
+    const activeBoardIdx = state.activeBoard.row * 3 + state.activeBoard.col;
+    hash ^= ZOBRIST_TABLE[ACTIVE_BOARD_OFFSET + activeBoardIdx];
+  } else {
+    hash ^= ZOBRIST_TABLE[ACTIVE_BOARD_OFFSET + 9]; // null activeBoard
+  }
 
-  // Формируем строку — base36 для компактности
-  return parts.map(p => p.toString(36)).join('.') + '.' + playerBit + activeBoardValue;
+  // Хэш текущего игрока
+  const playerIdx = state.currentPlayer === 'X' ? 0 : 1;
+  hash ^= ZOBRIST_TABLE[PLAYER_OFFSET + playerIdx];
+
+  return hash;
 }
 
+/**
+ * Обновляет хэш после хода (для инкрементального обновления).
+ *
+ * @param hash - текущий хэш
+ * @param boardRow - ряд доски (0-2)
+ * @param boardCol - колонка доски (0-2)
+ * @param cellRow - ряд клетки (0-2)
+ * @param cellCol - колонка клетки (0-2)
+ * @param player - игрок, сделавший ход
+ * @param oldActiveBoard - предыдущая активная доска (row, col) или null
+ * @param newActiveBoard - новая активная доска (row, col) или null
+ * @returns обновлённый хэш
+ */
+export function updateZobristHash(
+  hash: bigint,
+  boardRow: number,
+  boardCol: number,
+  cellRow: number,
+  cellCol: number,
+  player: 'X' | 'O',
+  oldActiveBoard: { row: number; col: number } | null,
+  newActiveBoard: { row: number; col: number } | null
+): bigint {
+  // XOR для новой фигуры
+  const position = boardRow * 27 + boardCol * 9 + cellRow * 3 + cellCol;
+  const offset = player === 'X' ? CELL_OFFSET_X : CELL_OFFSET_O;
+  hash ^= ZOBRIST_TABLE[offset + position];
+
+  // XOR для старой активной доски
+  if (oldActiveBoard) {
+    const oldIdx = oldActiveBoard.row * 3 + oldActiveBoard.col;
+    hash ^= ZOBRIST_TABLE[ACTIVE_BOARD_OFFSET + oldIdx];
+  } else {
+    hash ^= ZOBRIST_TABLE[ACTIVE_BOARD_OFFSET + 9];
+  }
+
+  // XOR для новой активной доски
+  if (newActiveBoard) {
+    const newIdx = newActiveBoard.row * 3 + newActiveBoard.col;
+    hash ^= ZOBRIST_TABLE[ACTIVE_BOARD_OFFSET + newIdx];
+  } else {
+    hash ^= ZOBRIST_TABLE[ACTIVE_BOARD_OFFSET + 9];
+  }
+
+  // XOR для смены игрока (X→O или O→X)
+  hash ^= ZOBRIST_TABLE[PLAYER_OFFSET]; // XOR обоих игроков = смена игрока
+  hash ^= ZOBRIST_TABLE[PLAYER_OFFSET + 1];
+
+  return hash;
+}
+
+/**
+ * Преобразует bigint хэш в строку для использования в Map.
+ * Используем base36 для компактности.
+ */
+export function hashToString(hash: bigint): string {
+  return hash.toString(36);
+}
+
+/**
+ * Совместимость: вычисляет строковый хэш напрямую из состояния.
+ * Это обёртка вокруг Zobrist для существующего API.
+ */
+export function computePositionHash(state: GameState): string {
+  const hash = computeZobristHash(state);
+  return hashToString(hash);
+}
