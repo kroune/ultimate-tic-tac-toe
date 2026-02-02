@@ -8,7 +8,9 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     clean: true,
-    filename: './js/[name].js',
+    filename: 'js/[name].[contenthash:8].js',
+    chunkFilename: 'js/[name].[contenthash:8].js',
+    publicPath: '/',
   },
   resolve: {
     extensions: ['.ts', '.tsx', '.js'],

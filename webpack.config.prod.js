@@ -2,6 +2,7 @@ const { merge } = require('webpack-merge');
 const common = require('./webpack.common.js');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyPlugin = require('copy-webpack-plugin');
+const TerserPlugin = require('terser-webpack-plugin');
 
 module.exports = merge(common, {
   mode: 'production',
@@ -23,4 +24,20 @@ module.exports = merge(common, {
       ],
     }),
   ],
+  optimization: {
+    minimize: true,
+    minimizer: [
+      new TerserPlugin({
+        extractComments: false,
+        terserOptions: {
+          compress: { passes: 2, drop_console: true },
+          mangle: true,
+          format: { comments: false },
+        },
+      }),
+    ],
+    splitChunks: { chunks: 'all' },
+    runtimeChunk: 'single',
+    moduleIds: 'deterministic',
+  },
 });
