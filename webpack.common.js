@@ -2,15 +2,13 @@ const path = require('path');
 
 module.exports = {
   entry: {
-    app: './src/app.ts',
-    'ai-worker': './src/ai-worker.ts',
+    app: './src/app.ts'
   },
+  devtool: false,
   output: {
     path: path.resolve(__dirname, 'dist'),
     clean: true,
-    filename: 'js/[name].[contenthash:8].js',
-    chunkFilename: 'js/[name].[contenthash:8].js',
-    publicPath: '/',
+    filename: './js/[name].js',
   },
   resolve: {
     extensions: ['.ts', '.tsx', '.js'],

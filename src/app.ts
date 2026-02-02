@@ -1,4 +1,5 @@
 import { GameEngine, GameState, Player, GlobalPosition } from './lib/ultimate-tic-tac-toe';
+import '../css/style.css';
 
 type GameMode = 'friend' | 'bot';
 
@@ -51,7 +52,7 @@ class UltimateTicTacToeUI {
 
   constructor() {
     this.engine = new GameEngine();
-    this.aiWorker = new Worker('./js/ai-worker.js');
+    this.aiWorker = new Worker(new URL('./ai-worker.ts', import.meta.url), { type: 'module' });
     this.setupWorkerListener();
 
     // Detect touch device - check for touch capability
