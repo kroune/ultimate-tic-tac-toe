@@ -64,7 +64,6 @@ module.exports = merge(common, {
           },
           mangle: {
             toplevel: true,
-            properties: true,
           },
           format: {
             comments: false,
